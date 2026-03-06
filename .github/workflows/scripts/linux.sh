@@ -22,18 +22,10 @@ mkdir -p "$PREFIX" "$PREFIX/include" "$PREFIX/lib" "$OUT"
 dnf install -y --allowerasing \
   gcc gcc-c++ gcc-gfortran make cmake wget git unzip zip \
   tar xz bzip2 patch diffutils pkgconfig m4 perl \
-  java-11-amazon-corretto-devel patchelf swig python3
-
-# maven via sdkman (come installaJavaAmzn.sh)
-if ! command -v mvn &>/dev/null; then
-  set +u
-  curl -s "https://get.sdkman.io" | bash
-  source "$HOME/.sdkman/bin/sdkman-init.sh"
-  sdk install maven --non-interactive
-  set -u
-fi
+  java-11-amazon-corretto-devel maven.noarch patchelf swig python3
 
 export JAVA_HOME=$(dirname $(dirname $(readlink -f $(which javac))))
+
 
 # ============================================================
 # 1-2. Dipendenze (skip se cachate)
