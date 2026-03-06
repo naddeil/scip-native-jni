@@ -36,6 +36,13 @@ mkdir -p staticdepsinstall && cd staticdepsinstall
 
 wget -q https://raw.githubusercontent.com/coin-or/coinbrew/master/coinbrew
 chmod u+x coinbrew
+
+export PATH="/usr/local/bin:/usr/bin:/bin:/usr/local/sbin:/usr/sbin:/sbin:$PATH"
+
+# Symlink di sicurezza in /usr/local/bin (trovato da qualsiasi PATH ragionevole)
+ln -sf /usr/bin/curl  /usr/local/bin/curl  2>/dev/null || true
+ln -sf /usr/bin/wget  /usr/local/bin/wget  2>/dev/null || true
+
 ./coinbrew fetch Ipopt --no-prompt
 export CFLAGS="-O3 -fPIC"
 export CXXFLAGS="-O3 -fPIC"
