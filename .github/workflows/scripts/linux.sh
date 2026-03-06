@@ -63,26 +63,36 @@ tar xf boost_1_85_0.tar.bz2 && cd boost_1_85_0
 ./bootstrap.sh --with-libraries=program_options,serialization,regex,random,iostreams --prefix="$PREFIX"
 ./b2 -j"$CORES" -d0 link=static runtime-link=static cxxflags="-fPIC -O3" install && cd ..
 
+# -----------------------------------------------------------
+# OpenBLAS — include BLAS + LAPACK + LAPACKE ottimizzati
+# BUG FIX: make install PRIMA dei symlink (il target non esiste ancora prima)
+# -----------------------------------------------------------
 wget -q https://github.com/OpenMathLib/OpenBLAS/releases/download/v0.3.30/OpenBLAS-0.3.30.zip
 unzip -q OpenBLAS-0.3.30.zip && mv OpenBLAS-0.3.30 OpenBLAS && cd OpenBLAS
 unset CFLAGS CXXFLAGS LDFLAGS LIBRARY_PATH LD_LIBRARY_PATH CPATH PKG_CONFIG_PATH 2>/dev/null || true
 make -s -j"$CORES" NO_SHARED=0 DYNAMIC_ARCH=1 USE_OPENMP=0 CC=/usr/bin/gcc FC=/usr/bin/gfortran
-ln -sf "$PREFIX/lib/libopenblas.so"  "$PREFIX/lib/libblas.so"
-make -s PREFIX="$PREFIX" install && cd ..
+make -s PREFIX="$PREFIX" install
+# Symlink DOPO install: OpenBLAS include già BLAS e LAPACK ottimizzati,
+# non serve buildare reference LAPACK separato
+ln -sf "$PREFIX/lib/libopenblas.so" "$PREFIX/lib/libblas.so"
+ln -sf "$PREFIX/lib/libopenblas.so" "$PREFIX/lib/liblapack.so"
+cd ..
 
-wget -q https://github.com/Reference-LAPACK/lapack/archive/refs/tags/v3.12.1.zip
-unzip -q v3.12.1.zip && mv lapack-* lapack && cd lapack
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="$PREFIX" \
-  -DBUILD_SHARED_LIBS=ON -DLAPACKE=ON \
-  -DBLAS_LIBRARIES="$PREFIX/lib/libopenblas.so" -DLAPACK_LIBRARIES="$PREFIX/lib/libopenblas.so"
-cmake --build build -j"$CORES" -- -s && cmake --install build && cd ..
+# -----------------------------------------------------------
+# Reference LAPACK RIMOSSO:
+# OpenBLAS dalla 0.3.x include già tutte le routine LAPACK (Fortran interface)
+# e LAPACKE (C interface). Buildare reference LAPACK sopra OpenBLAS aggiunge
+# solo un layer di indirezione inutile con perdita di performance.
+# SCIP, IPOPT e Mumps usano la Fortran interface — coperta da libopenblas.so.
+# -----------------------------------------------------------
 
+# IPOPT: linka direttamente a OpenBLAS (-lopenblas copre sia BLAS che LAPACK)
 ./coinbrew fetch Ipopt --no-prompt
 export CFLAGS="-O3 -fPIC"
 export CXXFLAGS="-O3 -fPIC"
 export FFLAGS="-O3 -fPIC"
 ./coinbrew build Ipopt --prefix="$PREFIX" --no-prompt --test --verbosity=3 \
-  --with-lapack-lflags="-L$PREFIX/lib -llapack -lblas"
+  --with-lapack-lflags="-L$PREFIX/lib -lopenblas"
 
 echo "Dipendenze compilate."
 else
@@ -99,20 +109,39 @@ mv "scipoptsuite-${SCIPOPTSUITE_VERSION}" scipoptsuite
 
 cd "$WORK/scipoptsuite"
 rm -rf build && mkdir -p build && cd build
+
+# NOTA IMPORTANTE da CMakeLists.txt riga 914:
+#   if(IPOPT_FOUND) → set(LAPACK off)
+# Quando IPOPT è trovato, SCIP forza internamente LAPACK=off, ignorando qualsiasi
+# -DLAPACK=on passato da fuori. IPOPT porta già la propria dipendenza BLAS/LAPACK
+# (via Mumps) nel suo .pc file — SCIP non ha bisogno di linkarla separatamente.
+# I flag -DLAPACK, -DBLAS_LIBRARIES, -DLAPACK_LIBRARIES sono quindi rimossi.
 cmake .. \
   -G "Unix Makefiles" \
   -DCMAKE_BUILD_TYPE=Release \
   -DCMAKE_INSTALL_PREFIX="$WORK/scip_shared" \
-  -DCMAKE_POSITION_INDEPENDENT_CODE=ON -DCMAKE_PREFIX_PATH="$PREFIX" \
-  -DLAPACK=true -DBLAS_LIBRARIES="$PREFIX/lib/libopenblas.so" \
-  -DLAPACK_LIBRARIES="$PREFIX/lib/liblapacke.so" \
-  -DCMAKE_C_FLAGS="-O3 -fPIC" -DCMAKE_CXX_FLAGS="-O3 -fPIC" \
+  -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
+  -DCMAKE_PREFIX_PATH="$PREFIX" \
+  -DCMAKE_C_FLAGS="-O3 -fPIC" \
+  -DCMAKE_CXX_FLAGS="-O3 -fPIC" \
   -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
-  -DSHARED=$SHARED_FLAG -DBUILD_SHARED_LIBS=$BUILD_SHARED \
-  -DREADLINE=off -DGMP=true -DGMP_DIR="$PREFIX" -DZIMPL=false \
-  -DLPS=spx -DSOPLEX_DIR="../soplex" \
-  -DIPOPT=true -DIPOPT_DIR="$PREFIX" \
-  -DFILTERSQP=false -DWORHP=false -DBOOST_ROOT="$PREFIX" -DLTO=on -DPAPILO=true -DTPI=none
+  -DSHARED=$SHARED_FLAG \
+  -DBUILD_SHARED_LIBS=$BUILD_SHARED \
+  -DREADLINE=off \
+  -DGMP=on \
+  -DGMP_DIR="$PREFIX" \
+  -DZIMPL=off \
+  -DLPS=spx \
+  -DSOPLEX_DIR="../soplex" \
+  -DIPOPT=on \
+  -DIPOPT_DIR="$PREFIX" \
+  -DFILTERSQP=off \
+  -DWORHP=off \
+  -DBOOST_ROOT="$PREFIX" \
+  -DLTO=on \
+  -DPAPILO=on \
+  -DTPI=none
+
 make -s -j"$CORES" && make -s install
 
 # ============================================================
@@ -136,28 +165,29 @@ cp "$WORK/JSCIPOpt/build/Release/scip.jar" "$OUT/"
 cp -L "$WORK/JSCIPOpt/build/Release/libjscip.so" "$OUT/"
 cp -L "$WORK/scipoptsuite/build/lib/libscip.so" "$OUT/libscip.so.${SCIP_MAJOR_MINOR}"
 
-# Dipendenze a link time (cp -L per seguire symlink)
-for lib in libmpfr.so libopenblas.so liblapacke.so libgmp.so libipopt.so; do
+# Dipendenze runtime dal prefix custom
+# BUG FIX: rimosso liblapacke.so (non è una dipendenza runtime di SCIP/IPOPT);
+# libopenblas.so copre sia BLAS che LAPACK per tutti i consumer.
+for lib in libmpfr.so libopenblas.so libgmp.so libipopt.so; do
   [ -f "$PREFIX/lib/$lib" ] && cp -L "$PREFIX/lib/$lib" "$OUT/"
 done
 cp -L "$PREFIX/lib/libcoinmumps.so" "$OUT/" 2>/dev/null || true
 
-# Librerie di sistema
-for syslib in libgcc_s.so.1 libgfortran.so.5 libstdc++.so.6 libquadmath.so.0 libc.so.6 libm.so.6 libblas.so.3 liblapack.so.3; do
+# Librerie di sistema (fallback — normalmente non servono se OpenBLAS copre BLAS/LAPACK)
+for syslib in libgcc_s.so.1 libgfortran.so.5 libstdc++.so.6 libquadmath.so.0 libc.so.6 libm.so.6; do
   FOUND=$(find /usr/lib64 /lib64 /usr/lib -name "$syslib" 2>/dev/null | head -1) || true
   [ -n "${FOUND:-}" ] && cp -L "$FOUND" "$OUT/" || true
 done
 
 # Rinomina con soname
 cd "$OUT"
-[ -f libmpfr.so ] && mv libmpfr.so libmpfr.so.6
-[ -f libopenblas.so ] && mv libopenblas.so libopenblas.so.0
-[ -f liblapacke.so ] && mv liblapacke.so liblapacke.so.3
-[ -f libgmp.so ] && mv libgmp.so libgmp.so.10
-[ -f libipopt.so ] && mv libipopt.so libipopt.so.3
+[ -f libmpfr.so ]      && mv libmpfr.so      libmpfr.so.6
+[ -f libopenblas.so ]  && mv libopenblas.so  libopenblas.so.0
+[ -f libgmp.so ]       && mv libgmp.so       libgmp.so.10
+[ -f libipopt.so ]     && mv libipopt.so     libipopt.so.3
 [ -f libcoinmumps.so ] && mv libcoinmumps.so libcoinmumps.so.3
 
-# Fix rpath
+# Fix rpath — $ORIGIN permette di caricare le dipendenze dalla stessa cartella
 for f in *.so*; do
   patchelf --set-rpath '$ORIGIN' "$f" 2>/dev/null || true
 done
@@ -176,9 +206,9 @@ for lib in ['outt/libscip.so.${SCIP_MAJOR_MINOR}', 'outt/libjscip.so']:
     print(f'Carico {lib}...')
     try:
         ctypes.CDLL(lib)
-        print('✅ OK')
+        print('OK')
     except OSError as e:
-        print(f'❌ {e}')
+        print(f'ERRORE: {e}')
         sys.exit(1)
 "
 
