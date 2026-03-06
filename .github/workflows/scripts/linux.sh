@@ -19,8 +19,8 @@ mkdir -p "$PREFIX" "$PREFIX/include" "$PREFIX/lib" "$OUT"
 # ============================================================
 # 0. Prerequisiti (Amazon Linux 2023)
 # ============================================================
-dnf install -y \
-  gcc gcc-c++ gcc-gfortran make cmake wget curl git unzip zip \
+dnf install -y --allowerasing \
+  gcc gcc-c++ gcc-gfortran make cmake wget git unzip zip \
   tar xz bzip2 patch diffutils pkgconfig m4 perl \
   java-11-amazon-corretto-devel patchelf swig python3
 
