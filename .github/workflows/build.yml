@@ -66,7 +66,9 @@ jobs:
       image: amazonlinux:2023
     steps:
       - name: Install base tools
-        run: dnf install -y tar gzip git
+        run: |
+          dnf remove -y curl-minimal 2>/dev/null || true
+          dnf install -y tar gzip git curl
 
       - uses: actions/checkout@v4
 
