@@ -20,13 +20,9 @@ mkdir -p "$PREFIX" "$PREFIX/include" "$PREFIX/lib" "$OUT"
 # 0. Prerequisiti (Amazon Linux 2023)
 # ============================================================
 dnf install -y \
-  gcc gcc-c++ gcc-gfortran make cmake wget git unzip zip \
+  gcc gcc-c++ gcc-gfortran make cmake wget curl git unzip zip \
   tar xz bzip2 patch diffutils pkgconfig m4 perl \
   java-11-amazon-corretto-devel maven.noarch patchelf swig python3
-
-# curl-minimal è già presente su AL2023, assicuriamoci che sia nel PATH come "curl"
-ln -sf /usr/bin/curl /usr/local/bin/curl 2>/dev/null || true
-
 export JAVA_HOME=$(dirname $(dirname $(readlink -f $(which javac))))
 
 
@@ -42,6 +38,8 @@ wget -q https://raw.githubusercontent.com/coin-or/coinbrew/master/coinbrew
 chmod u+x coinbrew
 ./coinbrew fetch Ipopt --no-prompt
 export CFLAGS="-O3 -fPIC"
+export CXXFLAGS="-O3 -fPIC"
+export FFLAGS="-O3 -fPIC"
 ./coinbrew build Ipopt --prefix="$PREFIX" --no-prompt --test --verbosity=3 \
   --with-lapack-lflags="-L$PREFIX/lib -llapack -lblas"
 
@@ -57,7 +55,7 @@ make -j"$CORES" && make install && cd ..
 
 curl -LO https://www.mpfr.org/mpfr-current/mpfr-4.2.2.tar.xz
 tar xf mpfr-4.2.2.tar.xz && cd mpfr-4.2.2
-./configure --prefix="$PREFIX" --with-gmp="$PREFIX"
+CFLAGS="-O3 -fPIC" ./configure --prefix="$PREFIX" --with-gmp="$PREFIX"
 make -j"$CORES" && make install && cd ..
 
 curl -LO https://archives.boost.io/release/1.85.0/source/boost_1_85_0.tar.bz2
@@ -101,7 +99,7 @@ cmake .. \
   -DCMAKE_POSITION_INDEPENDENT_CODE=ON -DCMAKE_PREFIX_PATH="$PREFIX" \
   -DLAPACK=true -DBLAS_LIBRARIES="$PREFIX/lib/libopenblas.so" \
   -DLAPACK_LIBRARIES="$PREFIX/lib/liblapacke.so" \
-  -DCMAKE_C_FLAGS="-fPIC" -DCMAKE_CXX_FLAGS="-fPIC" \
+  -DCMAKE_C_FLAGS="-O3 -fPIC" -DCMAKE_CXX_FLAGS="-O3 -fPIC" \
   -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
   -DSHARED=$SHARED_FLAG -DBUILD_SHARED_LIBS=$BUILD_SHARED \
   -DREADLINE=off -DGMP=true -DGMP_DIR="$PREFIX" -DZIMPL=false \

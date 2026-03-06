@@ -62,7 +62,7 @@ chmod +x coinbrew
   --with-lapack-lflags="-framework Accelerate" \
   --with-blas-lflags="-framework Accelerate" \
   --disable-shared --enable-static \
-  ADD_CFLAGS="-fPIC" ADD_CXXFLAGS="-fPIC" ADD_FFLAGS="-fPIC"
+  ADD_CFLAGS="-O3 -fPIC" ADD_CXXFLAGS="-O3 -fPIC" ADD_FFLAGS="-O3 -fPIC"
 
 echo "Dipendenze compilate."
 else
@@ -84,7 +84,7 @@ cmake .. \
   -DCMAKE_BUILD_TYPE=Release \
   -DCMAKE_INSTALL_PREFIX="$WORK/scip_shared" \
   -DCMAKE_PREFIX_PATH="$PREFIX" \
-  -DCMAKE_C_FLAGS="-fPIC" -DCMAKE_CXX_FLAGS="-fPIC" \
+  -DCMAKE_C_FLAGS="-O3 -fPIC" -DCMAKE_CXX_FLAGS="-O3 -fPIC" \
   -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
   -DSHARED=$SHARED_FLAG -DBUILD_SHARED_LIBS=$BUILD_SHARED \
   -DREADLINE=false -DGMP=true -DGMP_DIR="$PREFIX" -DZIMPL=false \

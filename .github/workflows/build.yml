@@ -67,10 +67,7 @@ jobs:
     steps:
       - name: Install base tools
         run: |
-          dnf install -y tar gzip git wget
-          # curl-minimal è presente ma coinbrew cerca "curl"
-          ln -sf /usr/bin/curl /usr/local/bin/curl 2>/dev/null || true
-
+          dnf install -y tar gzip git wget curl
       - uses: actions/checkout@v4
 
       - name: Restore dependencies cache
