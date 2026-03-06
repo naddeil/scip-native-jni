@@ -65,6 +65,9 @@ jobs:
     container:
       image: amazonlinux:2023
     steps:
+      - name: Install base tools
+        run: dnf install -y tar gzip git
+
       - uses: actions/checkout@v4
 
       - name: Restore dependencies cache
