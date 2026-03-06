@@ -26,9 +26,11 @@ dnf install -y --allowerasing \
 
 # maven via sdkman (come installaJavaAmzn.sh)
 if ! command -v mvn &>/dev/null; then
+  set +u
   curl -s "https://get.sdkman.io" | bash
   source "$HOME/.sdkman/bin/sdkman-init.sh"
   sdk install maven --non-interactive
+  set -u
 fi
 
 export JAVA_HOME=$(dirname $(dirname $(readlink -f $(which javac))))
