@@ -67,8 +67,9 @@ jobs:
     steps:
       - name: Install base tools
         run: |
-          dnf remove -y curl-minimal 2>/dev/null || true
-          dnf install -y tar gzip git curl
+          dnf install -y tar gzip git
+          # curl-minimal è presente ma coinbrew cerca "curl"
+          ln -sf /usr/bin/curl /usr/local/bin/curl 2>/dev/null || true
 
       - uses: actions/checkout@v4
 
