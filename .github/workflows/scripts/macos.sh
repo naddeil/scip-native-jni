@@ -40,7 +40,7 @@ tar xf zlib-1.3.1.tar.xz && cd zlib-1.3.1
 CFLAGS="-O3 -fPIC" ./configure --static --prefix="$PREFIX"
 make -j"$CORES" && make install && cd ..
 
-curl -LO https://gmplib.org/download/gmp/gmp-6.3.0.tar.xz
+curl -LO https://ftp.gnu.org/gnu/gmp/gmp-6.3.0.tar.xz
 tar xf gmp-6.3.0.tar.xz && cd gmp-6.3.0
 CFLAGS="-O3 -fPIC" ./configure --disable-shared --enable-static --prefix="$PREFIX"
 make -j"$CORES" && make install && cd ..
