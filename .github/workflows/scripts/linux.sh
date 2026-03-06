@@ -22,9 +22,10 @@ mkdir -p "$PREFIX" "$PREFIX/include" "$PREFIX/lib" "$OUT"
 dnf install -y --allowerasing \
   gcc gcc-c++ gcc-gfortran make cmake wget curl git unzip zip which \
   tar xz bzip2 patch diffutils pkgconfig m4 perl \
-  java-11-amazon-corretto-devel maven.noarch patchelf swig python3
-export JAVA_HOME=$(dirname $(dirname $(readlink -f $(which javac))))
+  java-11-amazon-corretto-devel maven.noarch patchelf swig python3 \
+  hwloc-devel hwloc         # richiesto da SPRAL per thread affinity
 
+export JAVA_HOME=$(dirname $(dirname $(readlink -f $(which javac))))
 
 # ============================================================
 # 1-2. Dipendenze (skip se cachate)
@@ -34,8 +35,24 @@ if [ "${DEPS_CACHED:-}" != "true" ]; then
 cd "$WORK"
 mkdir -p staticdepsinstall && cd staticdepsinstall
 
-wget -q https://raw.githubusercontent.com/coin-or/coinbrew/master/coinbrew
-chmod u+x coinbrew
+# -----------------------------------------------------------
+# Intel oneAPI MKL — per Pardiso (free, uso commerciale OK)
+# Installato prima di tutto così MKLROOT è disponibile per il configure di Ipopt
+# -----------------------------------------------------------
+cat > /etc/yum.repos.d/oneAPI.repo <<'EOF'
+[oneAPI]
+name=Intel® oneAPI repository
+baseurl=https://yum.repos.intel.com/oneapi
+enabled=1
+gpgcheck=1
+repo_gpgcheck=1
+gpgkey=https://yum.repos.intel.com/intel-gpg-keys/GPG-PUB-KEY-INTEL-SW-PRODUCTS.PUB
+EOF
+dnf install -y intel-oneapi-mkl-devel
+source /opt/intel/oneapi/setvars.sh --force
+# MKLROOT è ora impostato dall'oneAPI environment
+MKL_CFLAGS="-I${MKLROOT}/include"
+MKL_LFLAGS="-L${MKLROOT}/lib/intel64 -lmkl_rt -lpthread -lm -ldl"
 
 export PATH="/usr/local/bin:/usr/bin:/bin:/usr/local/sbin:/usr/sbin:/sbin:$PATH"
 
@@ -65,39 +82,154 @@ tar xf boost_1_85_0.tar.bz2 && cd boost_1_85_0
 
 # -----------------------------------------------------------
 # OpenBLAS — include BLAS + LAPACK + LAPACKE ottimizzati
-# BUG FIX: make install PRIMA dei symlink (il target non esiste ancora prima)
 # -----------------------------------------------------------
 wget -q https://github.com/OpenMathLib/OpenBLAS/releases/download/v0.3.30/OpenBLAS-0.3.30.zip
 unzip -q OpenBLAS-0.3.30.zip && mv OpenBLAS-0.3.30 OpenBLAS && cd OpenBLAS
 unset CFLAGS CXXFLAGS LDFLAGS LIBRARY_PATH LD_LIBRARY_PATH CPATH PKG_CONFIG_PATH 2>/dev/null || true
 make -s -j"$CORES" NO_SHARED=0 DYNAMIC_ARCH=1 USE_OPENMP=0 CC=/usr/bin/gcc FC=/usr/bin/gfortran
 make -s PREFIX="$PREFIX" install
-# Symlink DOPO install: OpenBLAS include già BLAS e LAPACK ottimizzati,
-# non serve buildare reference LAPACK separato
 ln -sf "$PREFIX/lib/libopenblas.so" "$PREFIX/lib/libblas.so"
 ln -sf "$PREFIX/lib/libopenblas.so" "$PREFIX/lib/liblapack.so"
 cd ..
 
 # -----------------------------------------------------------
-# Reference LAPACK RIMOSSO:
-# OpenBLAS dalla 0.3.x include già tutte le routine LAPACK (Fortran interface)
-# e LAPACKE (C interface). Buildare reference LAPACK sopra OpenBLAS aggiunge
-# solo un layer di indirezione inutile con perdita di performance.
-# SCIP, IPOPT e Mumps usano la Fortran interface — coperta da libopenblas.so.
+# METIS — ordinamento matrice sparsa per MUMPS e SPRAL
+# Senza METIS entrambi usano ordinamenti subottimali con forte degradazione
+# delle performance sui problemi di portfolio (matrici grandi e sparse)
 # -----------------------------------------------------------
+cd "$WORK/staticdepsinstall"
 
-# IPOPT: linka direttamente a OpenBLAS (-lopenblas copre sia BLAS che LAPACK)
-./coinbrew fetch Ipopt --no-prompt
+wget -q https://github.com/KarypisLab/GKlib/archive/refs/tags/METIS-v5.1.1-DistDGL-0.5.tar.gz
+tar -xf METIS-v5.1.1-DistDGL-0.5.tar.gz
+cd GKlib-METIS-v5.1.1-DistDGL-0.5
+sed -i 's/^CONFIG_FLAGS =/CONFIG_FLAGS = -DCMAKE_POLICY_VERSION_MINIMUM=3.5/' Makefile
+make config prefix="$WORK/staticdepsinstall/GKlib-METIS-v5.1.1-DistDGL-0.5"
+make -j"$CORES" && make install
+cd ..
+
+wget -q https://github.com/KarypisLab/METIS/archive/refs/tags/v5.1.1-DistDGL-v0.5.tar.gz
+tar -xf v5.1.1-DistDGL-v0.5.tar.gz
+cd METIS-5.1.1-DistDGL-v0.5
+sed -i 's/^CONFIG_FLAGS =/CONFIG_FLAGS = -DCMAKE_POLICY_VERSION_MINIMUM=3.5/' Makefile
+make config prefix="$PREFIX" gklib_path="$WORK/staticdepsinstall/GKlib-METIS-v5.1.1-DistDGL-0.5"
+make -j"$CORES" && make install
+cd ..
+
+METIS_CFLAGS="-I$PREFIX/include"
+METIS_LFLAGS="-L$PREFIX/lib -lmetis -lm"
+
+# -----------------------------------------------------------
+# ThirdParty-Mumps — buildato separatamente (con METIS)
+# coinbrew lo includerebbe in automatico ma senza METIS
+# -----------------------------------------------------------
+cd "$WORK/staticdepsinstall"
+
+git clone --depth=1 https://github.com/coin-or-tools/ThirdParty-Mumps.git
+cd ThirdParty-Mumps
+./get.Mumps
+
 export CFLAGS="-O3 -fPIC"
 export CXXFLAGS="-O3 -fPIC"
 export FFLAGS="-O3 -fPIC"
-./coinbrew build Ipopt --prefix="$PREFIX" --no-prompt --test --verbosity=3 \
+
+./configure \
+  --enable-shared=yes \
+  --enable-static=yes \
+  --with-pic \
+  --prefix="$PREFIX" \
+  --with-metis-cflags="$METIS_CFLAGS" \
+  --with-metis-lflags="$METIS_LFLAGS" \
   --with-lapack-lflags="-L$PREFIX/lib -lopenblas"
+make -j"$CORES" && make install
+cd ..
+
+# -----------------------------------------------------------
+# SPRAL (BSD — free anche per uso commerciale)
+# Solver sparso parallelo più moderno di MUMPS
+# Richiede: METIS, OpenBLAS, hwloc, OpenMP
+# -----------------------------------------------------------
+cd "$WORK/staticdepsinstall"
+
+git clone --depth=1 https://github.com/ralna/spral.git
+cd spral
+
+# SPRAL usa autotools
+if [ -f autogen.sh ]; then
+  ./autogen.sh
+else
+  autoreconf -fi
+fi
+
+./configure \
+  --prefix="$PREFIX" \
+  --with-pic \
+  --enable-shared=yes \
+  --enable-static=yes \
+  --with-metis-cflags="$METIS_CFLAGS" \
+  --with-metis-lflags="$METIS_LFLAGS" \
+  --with-blas-cflags="-I$PREFIX/include" \
+  --with-blas-lflags="-L$PREFIX/lib -lopenblas -lpthread -lm"
+
+make -j"$CORES" && make install
+cd ..
+
+SPRAL_CFLAGS="-I$PREFIX/include"
+# -lhwloc e -fopenmp sono dipendenze runtime obbligatorie di SPRAL
+SPRAL_LFLAGS="-L$PREFIX/lib -lspral -lgfortran -lhwloc -lm $METIS_LFLAGS -lopenblas -lstdc++ -fopenmp"
+
+# -----------------------------------------------------------
+# IPOPT — configure diretto (non coinbrew) per poter passare
+# --with-spral-* e --with-pardisomkl-* flags
+# Solver compilati dentro: MUMPS + SPRAL + MKL Pardiso
+# -----------------------------------------------------------
+cd "$WORK/staticdepsinstall"
+
+wget -q https://raw.githubusercontent.com/coin-or/coinbrew/master/coinbrew
+chmod u+x coinbrew
+ln -sf /usr/bin/curl  /usr/local/bin/curl  2>/dev/null || true
+ln -sf /usr/bin/wget  /usr/local/bin/wget  2>/dev/null || true
+
+./coinbrew fetch Ipopt --no-prompt
+
+# Ipopt va buildato con configure diretto per supportare tutti i flag custom.
+# coinbrew fetch scarica i sorgenti; build manuale con configure.
+IPOPT_SRC=$(ls -d Ipopt-* 2>/dev/null | head -1 || ls -d Ipopt/  2>/dev/null | head -1)
+cd "$IPOPT_SRC"
+mkdir -p build && cd build
+
+../configure \
+  --prefix="$PREFIX" \
+  --enable-shared=yes \
+  --enable-static=yes \
+  --with-pic \
+  --enable-sipopt=no \
+  --with-metis-cflags="$METIS_CFLAGS" \
+  --with-metis-lflags="$METIS_LFLAGS" \
+  --with-lapack-cflags="-I$PREFIX/include" \
+  --with-lapack-lflags="-L$PREFIX/lib -lopenblas -lgfortran -lm" \
+  --with-mumps-cflags="-I$PREFIX/include/coin-or/mumps" \
+  --with-mumps-lflags="-L$PREFIX/lib -lcoinmumps -lgfortran -lm $METIS_LFLAGS" \
+  --with-spral-cflags="$SPRAL_CFLAGS" \
+  --with-spral-lflags="$SPRAL_LFLAGS" \
+  --with-pardisomkl-cflags="$MKL_CFLAGS" \
+  --with-pardisomkl-lflags="$MKL_LFLAGS"
+
+make -j"$CORES"
+if [ "${TESTS:-OFF}" = "ON" ]; then
+  make test V=1 || :
+fi
+make install
 
 echo "Dipendenze compilate."
 else
   echo "Dipendenze cachate, skip compilazione."
+  # Riesporta variabili necessarie alla build SCIP
+  source /opt/intel/oneapi/setvars.sh --force 2>/dev/null || true
 fi
+
+# SPRAL richiede queste variabili OpenMP per funzionare correttamente a runtime
+export OMP_CANCELLATION=TRUE
+export OMP_PROC_BIND=TRUE
 
 # ============================================================
 # 3. Download e compila SCIP
@@ -115,7 +247,6 @@ rm -rf build && mkdir -p build && cd build
 # Quando IPOPT è trovato, SCIP forza internamente LAPACK=off, ignorando qualsiasi
 # -DLAPACK=on passato da fuori. IPOPT porta già la propria dipendenza BLAS/LAPACK
 # (via Mumps) nel suo .pc file — SCIP non ha bisogno di linkarla separatamente.
-# I flag -DLAPACK, -DBLAS_LIBRARIES, -DLAPACK_LIBRARIES sono quindi rimossi.
 cmake .. \
   -G "Unix Makefiles" \
   -DCMAKE_BUILD_TYPE=Release \
@@ -166,15 +297,21 @@ cp -L "$WORK/JSCIPOpt/build/Release/libjscip.so" "$OUT/"
 cp -L "$WORK/scipoptsuite/build/lib/libscip.so" "$OUT/libscip.so.${SCIP_MAJOR_MINOR}"
 
 # Dipendenze runtime dal prefix custom
-# BUG FIX: rimosso liblapacke.so (non è una dipendenza runtime di SCIP/IPOPT);
-# libopenblas.so copre sia BLAS che LAPACK per tutti i consumer.
-for lib in libmpfr.so libopenblas.so libgmp.so libipopt.so; do
-  [ -f "$PREFIX/lib/$lib" ] && cp -L "$PREFIX/lib/$lib" "$OUT/"
+for lib in libmpfr.so libopenblas.so libgmp.so libipopt.so libspral.so; do
+  [ -f "$PREFIX/lib/$lib" ] && cp -L "$PREFIX/lib/$lib" "$OUT/" || true
 done
 cp -L "$PREFIX/lib/libcoinmumps.so" "$OUT/" 2>/dev/null || true
 
-# Librerie di sistema (fallback — normalmente non servono se OpenBLAS copre BLAS/LAPACK)
-for syslib in libgcc_s.so.1 libgfortran.so.5 libstdc++.so.6 libquadmath.so.0 libc.so.6 libm.so.6; do
+# MKL Pardiso — copia libmkl_rt.so (unica lib necessaria con linking dinamico)
+# libmkl_rt.so è il dispatcher MKL e include Pardiso
+MKL_LIB_DIR="${MKLROOT}/lib/intel64"
+for mkllib in libmkl_rt.so libmkl_intel_lp64.so libmkl_gnu_thread.so libmkl_core.so; do
+  [ -f "$MKL_LIB_DIR/$mkllib" ] && cp -L "$MKL_LIB_DIR/$mkllib" "$OUT/" || true
+done
+
+# Librerie di sistema
+for syslib in libgcc_s.so.1 libgfortran.so.5 libstdc++.so.6 libquadmath.so.0 \
+              libc.so.6 libm.so.6 libgomp.so.1 libhwloc.so.15; do
   FOUND=$(find /usr/lib64 /lib64 /usr/lib -name "$syslib" 2>/dev/null | head -1) || true
   [ -n "${FOUND:-}" ] && cp -L "$FOUND" "$OUT/" || true
 done
@@ -186,6 +323,7 @@ cd "$OUT"
 [ -f libgmp.so ]       && mv libgmp.so       libgmp.so.10
 [ -f libipopt.so ]     && mv libipopt.so     libipopt.so.3
 [ -f libcoinmumps.so ] && mv libcoinmumps.so libcoinmumps.so.3
+[ -f libspral.so ]     && mv libspral.so     libspral.so.0
 
 # Fix rpath — $ORIGIN permette di caricare le dipendenze dalla stessa cartella
 for f in *.so*; do
