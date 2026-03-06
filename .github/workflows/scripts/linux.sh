@@ -22,7 +22,8 @@ mkdir -p "$PREFIX" "$PREFIX/include" "$PREFIX/lib" "$OUT"
 dnf install -y --allowerasing \
   gcc gcc-c++ gcc-gfortran make cmake wget git unzip zip \
   tar xz bzip2 patch diffutils pkgconfig m4 perl \
-  java-11-amazon-corretto-devel maven.noarch patchelf swig python3
+  java-11-amazon-corretto-devel maven.noarch patchelf swig python3 \
+  curl
 
 export JAVA_HOME=$(dirname $(dirname $(readlink -f $(which javac))))
 
@@ -55,6 +56,13 @@ tar xf boost_1_85_0.tar.bz2 && cd boost_1_85_0
 ./bootstrap.sh --with-libraries=program_options,serialization,regex,random,iostreams --prefix="$PREFIX"
 ./b2 -j"$CORES" link=static runtime-link=static cxxflags="-fPIC -O3" install && cd ..
 
+wget -q https://raw.githubusercontent.com/coin-or/coinbrew/master/coinbrew
+chmod u+x coinbrew
+./coinbrew fetch Ipopt --no-prompt
+export CFLAGS="-O3 -fPIC"
+./coinbrew build Ipopt --prefix="$PREFIX" --no-prompt --test --verbosity=3 \
+  --with-lapack-lflags="-L$PREFIX/lib -llapack -lblas"
+
 wget -q https://github.com/OpenMathLib/OpenBLAS/releases/download/v0.3.30/OpenBLAS-0.3.30.zip
 unzip -q OpenBLAS-0.3.30.zip && mv OpenBLAS-0.3.30 OpenBLAS && cd OpenBLAS
 unset CFLAGS CXXFLAGS LDFLAGS LIBRARY_PATH LD_LIBRARY_PATH CPATH PKG_CONFIG_PATH 2>/dev/null || true
@@ -68,12 +76,6 @@ cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="$PREFIX" 
   -DBLAS_LIBRARIES="$PREFIX/lib/libopenblas.so" -DLAPACK_LIBRARIES="$PREFIX/lib/libopenblas.so"
 cmake --build build -j"$CORES" && cmake --install build && cd ..
 
-wget -q https://raw.githubusercontent.com/coin-or/coinbrew/master/coinbrew
-chmod u+x coinbrew
-./coinbrew fetch Ipopt --no-prompt
-export CFLAGS="-O3 -fPIC"
-./coinbrew build Ipopt --prefix="$PREFIX" --no-prompt --verbosity=3 \
-  --with-lapack-lflags="-L$PREFIX/lib -llapack -lblas"
 
 echo "Dipendenze compilate."
 else
@@ -154,16 +156,16 @@ for f in *.so*; do
 done
 
 # ============================================================
-# 6. Checker
+# 6. Checker — verifica rpath rinominando le cartelle sorgente
 # ============================================================
-echo "=== Verifica dipendenze ==="
-export LD_LIBRARY_PATH="$OUT"
-ldd "$OUT/libjscip.so" || true
-ldd "$OUT/libscip.so.${SCIP_MAJOR_MINOR}" || true
+echo "=== Verifica rpath ==="
+cd "$WORK"
+mv out outt
+mv deps_static deps_staticc
 
 python3 -c "
 import ctypes, sys
-for lib in ['$OUT/libscip.so.${SCIP_MAJOR_MINOR}', '$OUT/libjscip.so']:
+for lib in ['outt/libscip.so.${SCIP_MAJOR_MINOR}', 'outt/libjscip.so']:
     print(f'Carico {lib}...')
     try:
         ctypes.CDLL(lib)
@@ -173,8 +175,19 @@ for lib in ['$OUT/libscip.so.${SCIP_MAJOR_MINOR}', '$OUT/libjscip.so']:
         sys.exit(1)
 "
 
+mv deps_staticc deps_static
+mv outt out
+
 cd "$WORK"
 zip -r out.zip out/
+
+# Crea test_package.zip
+mkdir -p test_package
+cp -r out test_package/
+cp resources/ipeoptimtest.zip test_package/
+zip -r test_package.zip test_package/
+rm -rf test_package
+
 echo "Build Linux completata."
 
 # ============================================================

@@ -88,7 +88,9 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: linux-x86_64
-          path: ${{ github.workspace }}/out.zip
+          path: |
+            ${{ github.workspace }}/out.zip
+            ${{ github.workspace }}/test_package.zip
 
   merge-artifacts:
     needs: [macos-build, linux-build]
