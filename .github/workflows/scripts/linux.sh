@@ -46,35 +46,36 @@ ln -sf /usr/bin/wget  /usr/local/bin/wget  2>/dev/null || true
 curl -LO https://github.com/madler/zlib/releases/download/v1.3.1/zlib-1.3.1.tar.xz
 tar xf zlib-1.3.1.tar.xz && cd zlib-1.3.1
 CFLAGS="-O3 -fPIC" ./configure --static --prefix="$PREFIX"
-make -j"$CORES" && make install && cd ..
+make -s -j"$CORES" && make -s install && cd ..
 
 curl -LO https://ftp.gnu.org/gnu/gmp/gmp-6.3.0.tar.xz
 tar xf gmp-6.3.0.tar.xz && cd gmp-6.3.0
 CFLAGS="-O3 -fPIC" ./configure --prefix="$PREFIX"
-make -j"$CORES" && make install && cd ..
+make -s -j"$CORES" && make -s install && cd ..
 
 curl -LO https://www.mpfr.org/mpfr-current/mpfr-4.2.2.tar.xz
 tar xf mpfr-4.2.2.tar.xz && cd mpfr-4.2.2
 CFLAGS="-O3 -fPIC" ./configure --prefix="$PREFIX" --with-gmp="$PREFIX"
-make -j"$CORES" && make install && cd ..
+make -s -j"$CORES" && make -s install && cd ..
 
 curl -LO https://archives.boost.io/release/1.85.0/source/boost_1_85_0.tar.bz2
 tar xf boost_1_85_0.tar.bz2 && cd boost_1_85_0
 ./bootstrap.sh --with-libraries=program_options,serialization,regex,random,iostreams --prefix="$PREFIX"
-./b2 -j"$CORES" link=static runtime-link=static cxxflags="-fPIC -O3" install && cd ..
+./b2 -j"$CORES" -d0 link=static runtime-link=static cxxflags="-fPIC -O3" install && cd ..
 
 wget -q https://github.com/OpenMathLib/OpenBLAS/releases/download/v0.3.30/OpenBLAS-0.3.30.zip
 unzip -q OpenBLAS-0.3.30.zip && mv OpenBLAS-0.3.30 OpenBLAS && cd OpenBLAS
 unset CFLAGS CXXFLAGS LDFLAGS LIBRARY_PATH LD_LIBRARY_PATH CPATH PKG_CONFIG_PATH 2>/dev/null || true
-make -j"$CORES" NO_SHARED=0 DYNAMIC_ARCH=1 USE_OPENMP=0 CC=/usr/bin/gcc FC=/usr/bin/gfortran
-make PREFIX="$PREFIX" install && cd ..
+make -s -j"$CORES" NO_SHARED=0 DYNAMIC_ARCH=1 USE_OPENMP=0 CC=/usr/bin/gcc FC=/usr/bin/gfortran
+ln -sf "$PREFIX/lib/libopenblas.so"  "$PREFIX/lib/libblas.so"
+make -s PREFIX="$PREFIX" install && cd ..
 
 wget -q https://github.com/Reference-LAPACK/lapack/archive/refs/tags/v3.12.1.zip
 unzip -q v3.12.1.zip && mv lapack-* lapack && cd lapack
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="$PREFIX" \
   -DBUILD_SHARED_LIBS=ON -DLAPACKE=ON \
   -DBLAS_LIBRARIES="$PREFIX/lib/libopenblas.so" -DLAPACK_LIBRARIES="$PREFIX/lib/libopenblas.so"
-cmake --build build -j"$CORES" && cmake --install build && cd ..
+cmake --build build -j"$CORES" -- -s && cmake --install build && cd ..
 
 ./coinbrew fetch Ipopt --no-prompt
 export CFLAGS="-O3 -fPIC"
@@ -111,8 +112,8 @@ cmake .. \
   -DREADLINE=off -DGMP=true -DGMP_DIR="$PREFIX" -DZIMPL=false \
   -DLPS=spx -DSOPLEX_DIR="../soplex" \
   -DIPOPT=true -DIPOPT_DIR="$PREFIX" \
-  -DFILTERSQP=false -DWORHP=false -DBOOST_ROOT="$PREFIX"
-make -j"$CORES" && make install
+  -DFILTERSQP=false -DWORHP=false -DBOOST_ROOT="$PREFIX" -DLTO=on -DPAPILO=true -DTPI=none
+make -s -j"$CORES" && make -s install
 
 # ============================================================
 # 4. Compila JSCIPOpt (versione modificata con package it.prometeia.jscip)
@@ -123,7 +124,7 @@ cd JSCIPOpt
 rm -f src/*cxx src/*h 2>/dev/null || true
 rm -rf build && mkdir build && cd build
 cmake .. -DSCIP_DIR="$SCIP_BUILD" -DCMAKE_POLICY_VERSION_MINIMUM=3.5
-make
+make -s
 
 # ============================================================
 # 5. Genera output (cp -L per dereferenziare symlink)

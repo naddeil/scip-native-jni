@@ -38,22 +38,22 @@ mkdir -p staticdepsinstall && cd staticdepsinstall
 curl -LO https://github.com/madler/zlib/releases/download/v1.3.1/zlib-1.3.1.tar.xz
 tar xf zlib-1.3.1.tar.xz && cd zlib-1.3.1
 CFLAGS="-O3 -fPIC" ./configure --static --prefix="$PREFIX"
-make -j"$CORES" && make install && cd ..
+make -s -j"$CORES" && make -s install && cd ..
 
 curl -LO https://ftp.gnu.org/gnu/gmp/gmp-6.3.0.tar.xz
 tar xf gmp-6.3.0.tar.xz && cd gmp-6.3.0
 CFLAGS="-O3 -fPIC" ./configure --disable-shared --enable-static --prefix="$PREFIX"
-make -j"$CORES" && make install && cd ..
+make -s -j"$CORES" && make -s install && cd ..
 
 curl -LO https://www.mpfr.org/mpfr-current/mpfr-4.2.2.tar.xz
 tar xf mpfr-4.2.2.tar.xz && cd mpfr-4.2.2
 CFLAGS="-O3 -fPIC" ./configure --disable-shared --enable-static --prefix="$PREFIX" --with-gmp="$PREFIX"
-make -j"$CORES" && make install && cd ..
+make -s -j"$CORES" && make -s install && cd ..
 
 curl -LO https://archives.boost.io/release/1.85.0/source/boost_1_85_0.tar.bz2
 tar xf boost_1_85_0.tar.bz2 && cd boost_1_85_0
 ./bootstrap.sh --with-libraries=program_options,serialization,regex,random,iostreams --prefix="$PREFIX"
-./b2 -j"$CORES" link=static runtime-link=static cxxflags="-fPIC" install && cd ..
+./b2 -j"$CORES" -d0 link=static runtime-link=static cxxflags="-fPIC" install && cd ..
 
 curl -L -o coinbrew https://raw.githubusercontent.com/coin-or/coinbrew/master/coinbrew
 chmod +x coinbrew
@@ -90,8 +90,8 @@ cmake .. \
   -DREADLINE=false -DGMP=true -DGMP_DIR="$PREFIX" -DZIMPL=false \
   -DLAPACK=true -DLPS=spx -DSOPLEX_DIR="../soplex" \
   -DIPOPT=true -DIPOPT_DIR="$PREFIX" \
-  -DFILTERSQP=false -DWORHP=false -DBOOST_ROOT="$PREFIX"
-make -j"$CORES" && make install
+  -DFILTERSQP=false -DWORHP=false -DBOOST_ROOT="$PREFIX" -DLTO=on -DPAPILO=true
+make -s -j"$CORES" && make -s install
 
 # ============================================================
 # 4. Compila JSCIPOpt
