@@ -83,7 +83,6 @@ tar xf boost_1_85_0.tar.bz2 && cd boost_1_85_0
 
 # -----------------------------------------------------------
 # OpenBLAS — BLAS + LAPACK + LAPACKE ottimizzati
-# BUG FIX: make install PRIMA dei symlink
 # -----------------------------------------------------------
 wget -q https://github.com/OpenMathLib/OpenBLAS/releases/download/v0.3.30/OpenBLAS-0.3.30.zip
 unzip -q OpenBLAS-0.3.30.zip && mv OpenBLAS-0.3.30 OpenBLAS && cd OpenBLAS
