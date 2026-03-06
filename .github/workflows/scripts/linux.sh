@@ -43,13 +43,6 @@ export PATH="/usr/local/bin:/usr/bin:/bin:/usr/local/sbin:/usr/sbin:/sbin:$PATH"
 ln -sf /usr/bin/curl  /usr/local/bin/curl  2>/dev/null || true
 ln -sf /usr/bin/wget  /usr/local/bin/wget  2>/dev/null || true
 
-./coinbrew fetch Ipopt --no-prompt
-export CFLAGS="-O3 -fPIC"
-export CXXFLAGS="-O3 -fPIC"
-export FFLAGS="-O3 -fPIC"
-./coinbrew build Ipopt --prefix="$PREFIX" --no-prompt --test --verbosity=3 \
-  --with-lapack-lflags="-L$PREFIX/lib -llapack -lblas"
-
 curl -LO https://github.com/madler/zlib/releases/download/v1.3.1/zlib-1.3.1.tar.xz
 tar xf zlib-1.3.1.tar.xz && cd zlib-1.3.1
 CFLAGS="-O3 -fPIC" ./configure --static --prefix="$PREFIX"
@@ -83,6 +76,12 @@ cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="$PREFIX" 
   -DBLAS_LIBRARIES="$PREFIX/lib/libopenblas.so" -DLAPACK_LIBRARIES="$PREFIX/lib/libopenblas.so"
 cmake --build build -j"$CORES" && cmake --install build && cd ..
 
+./coinbrew fetch Ipopt --no-prompt
+export CFLAGS="-O3 -fPIC"
+export CXXFLAGS="-O3 -fPIC"
+export FFLAGS="-O3 -fPIC"
+./coinbrew build Ipopt --prefix="$PREFIX" --no-prompt --test --verbosity=3 \
+  --with-lapack-lflags="-L$PREFIX/lib -llapack -lblas"
 
 echo "Dipendenze compilate."
 else
