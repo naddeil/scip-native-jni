@@ -67,7 +67,7 @@ jobs:
     steps:
       - name: Install base tools
         run: |
-          dnf install -y --allowerasing tar gzip git wget curl
+          dnf install -y --allowerasing tar gzip git wget curl which
       - uses: actions/checkout@v4
 
       - name: Restore dependencies cache
