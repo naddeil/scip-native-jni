@@ -44,19 +44,19 @@ ln -sf /usr/bin/wget /usr/local/bin/wget 2>/dev/null || true
 # Intel oneAPI MKL — Pardiso (free, uso commerciale OK, solo x86-64)
 # Installato prima così MKLROOT è disponibile per il configure di Ipopt
 # -----------------------------------------------------------
-cat > /etc/yum.repos.d/oneAPI.repo <<'EOF'
-[oneAPI]
-name=Intel® oneAPI repository
-baseurl=https://yum.repos.intel.com/oneapi
-enabled=1
-gpgcheck=1
-repo_gpgcheck=1
-gpgkey=https://yum.repos.intel.com/intel-gpg-keys/GPG-PUB-KEY-INTEL-SW-PRODUCTS.PUB
-EOF
-dnf install -y intel-oneapi-mkl-devel procps-ng
-source /opt/intel/oneapi/setvars.sh --force
-MKL_CFLAGS="-I${MKLROOT}/include"
-MKL_LFLAGS="-L${MKLROOT}/lib/intel64 -lmkl_rt -lpthread -lm -ldl"
+# cat > /etc/yum.repos.d/oneAPI.repo <<'EOF'
+# [oneAPI]
+# name=Intel® oneAPI repository
+# baseurl=https://yum.repos.intel.com/oneapi
+# enabled=1
+# gpgcheck=1
+# repo_gpgcheck=1
+# gpgkey=https://yum.repos.intel.com/intel-gpg-keys/GPG-PUB-KEY-INTEL-SW-PRODUCTS.PUB
+# EOF
+# dnf install -y intel-oneapi-mkl-devel procps-ng
+# source /opt/intel/oneapi/setvars.sh --force
+# MKL_CFLAGS="-I${MKLROOT}/include"
+# MKL_LFLAGS="-L${MKLROOT}/lib/intel64 -lmkl_rt -lpthread -lm -ldl"
 
 # -----------------------------------------------------------
 # zlib, GMP, MPFR, Boost (invariati)
@@ -179,8 +179,8 @@ export FFLAGS="-O3 -fPIC"
   --with-lapack-lflags="-L$PREFIX/lib -lopenblas" \
   --with-spral-cflags="-I$PREFIX/include" \
   --with-spral-lflags="-L$PREFIX/lib -lspral -lgfortran -lhwloc -lm $METIS_LFLAGS -lopenblas -lstdc++ -fopenmp" \
-  --with-pardisomkl-cflags="$MKL_CFLAGS" \
-  --with-pardisomkl-lflags="$MKL_LFLAGS"
+  # --with-pardisomkl-cflags="$MKL_CFLAGS" \
+  # --with-pardisomkl-lflags="$MKL_LFLAGS"
 
 if [ "${TESTS:-OFF}" = "ON" ]; then
   ./coinbrew test Ipopt --no-prompt || true
@@ -284,10 +284,10 @@ fi
 
 # MKL Pardiso — cp -L dereferenzia il symlink .so → file reale versioned
 # libmkl_rt.so è il dispatcher MKL che include Pardiso e carica le dipendenze a runtime
-MKL_LIB_DIR="${MKLROOT}/lib/intel64"
-for mkllib in libmkl_rt.so libmkl_intel_lp64.so libmkl_gnu_thread.so libmkl_core.so; do
-  [ -f "$MKL_LIB_DIR/$mkllib" ] && cp -L "$MKL_LIB_DIR/$mkllib" "$OUT/" || true
-done
+# MKL_LIB_DIR="${MKLROOT}/lib/intel64"
+# for mkllib in libmkl_rt.so libmkl_intel_lp64.so libmkl_gnu_thread.so libmkl_core.so; do
+#   [ -f "$MKL_LIB_DIR/$mkllib" ] && cp -L "$MKL_LIB_DIR/$mkllib" "$OUT/" || true
+# done
 
 # Librerie di sistema (aggiunto libgomp e libhwloc richiesti da SPRAL a runtime)
 for syslib in libgcc_s.so.1 libgfortran.so.5 libstdc++.so.6 libquadmath.so.0 \
