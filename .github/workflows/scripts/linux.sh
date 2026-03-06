@@ -38,6 +38,13 @@ if [ "${DEPS_CACHED:-}" != "true" ]; then
 cd "$WORK"
 mkdir -p staticdepsinstall && cd staticdepsinstall
 
+wget -q https://raw.githubusercontent.com/coin-or/coinbrew/master/coinbrew
+chmod u+x coinbrew
+./coinbrew fetch Ipopt --no-prompt
+export CFLAGS="-O3 -fPIC"
+./coinbrew build Ipopt --prefix="$PREFIX" --no-prompt --test --verbosity=3 \
+  --with-lapack-lflags="-L$PREFIX/lib -llapack -lblas"
+
 curl -LO https://github.com/madler/zlib/releases/download/v1.3.1/zlib-1.3.1.tar.xz
 tar xf zlib-1.3.1.tar.xz && cd zlib-1.3.1
 CFLAGS="-O3 -fPIC" ./configure --static --prefix="$PREFIX"
@@ -57,13 +64,6 @@ curl -LO https://archives.boost.io/release/1.85.0/source/boost_1_85_0.tar.bz2
 tar xf boost_1_85_0.tar.bz2 && cd boost_1_85_0
 ./bootstrap.sh --with-libraries=program_options,serialization,regex,random,iostreams --prefix="$PREFIX"
 ./b2 -j"$CORES" link=static runtime-link=static cxxflags="-fPIC -O3" install && cd ..
-
-wget -q https://raw.githubusercontent.com/coin-or/coinbrew/master/coinbrew
-chmod u+x coinbrew
-./coinbrew fetch Ipopt --no-prompt
-export CFLAGS="-O3 -fPIC"
-./coinbrew build Ipopt --prefix="$PREFIX" --no-prompt --test --verbosity=3 \
-  --with-lapack-lflags="-L$PREFIX/lib -llapack -lblas"
 
 wget -q https://github.com/OpenMathLib/OpenBLAS/releases/download/v0.3.30/OpenBLAS-0.3.30.zip
 unzip -q OpenBLAS-0.3.30.zip && mv OpenBLAS-0.3.30 OpenBLAS && cd OpenBLAS
