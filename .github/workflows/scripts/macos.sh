@@ -97,8 +97,7 @@ make -j"$CORES" && make install
 # 4. Compila JSCIPOpt
 # ============================================================
 cd "$WORK"
-wget -q https://github.com/scipopt/JSCIPOpt/archive/refs/heads/master.zip -O jscipopt.zip
-unzip -q jscipopt.zip && mv JSCIPOpt-master JSCIPOpt
+unzip -q resources/JSCIPOpt.zip
 cd JSCIPOpt && rm -rf build && mkdir build && cd build
 cmake .. -DSCIP_DIR="$SCIP_BUILD" -DCMAKE_POLICY_VERSION_MINIMUM=3.5
 make
@@ -155,3 +154,20 @@ for lib in ['$OUT/libjscip.dylib', '$OUT/$SCIP_DYLIB']:
 cd "$WORK"
 zip -r out.zip out/
 echo "Build macOS completata."
+
+# ============================================================
+# 7. Test Java (runTest.sh)
+# ============================================================
+mvn install:install-file \
+  -Dfile="$OUT/scip.jar" \
+  -DgroupId=com.test -DartifactId=scip -Dversion=0.0.1 -Dpackaging=jar
+
+cd "$WORK"
+unzip -q resources/ipeoptimtest.zip
+cd ipeoptimtest
+mvn clean compile
+MAVEN_OPTS="-Djava.library.path=$OUT" \
+  mvn exec:java -Dexec.mainClass="com.prometeia.test.TestIntegrazioneCoptimQuadratico"
+cd "$WORK"
+rm -rf ipeoptimtest
+echo "Test Java completato."

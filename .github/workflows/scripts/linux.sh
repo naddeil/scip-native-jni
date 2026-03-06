@@ -24,12 +24,11 @@ dnf install -y --allowerasing \
   tar xz bzip2 patch diffutils pkgconfig m4 perl \
   java-11-amazon-corretto-devel patchelf swig python3
 
-# maven non è nei repo default AL2023, installiamo manualmente
+# maven via sdkman (come installaJavaAmzn.sh)
 if ! command -v mvn &>/dev/null; then
-  cd /tmp
-  wget -q https://dlcdn.apache.org/maven/maven-3/3.9.9/binaries/apache-maven-3.9.9-bin.tar.gz
-  tar xzf apache-maven-3.9.9-bin.tar.gz -C /opt
-  ln -sf /opt/apache-maven-3.9.9/bin/mvn /usr/local/bin/mvn
+  curl -s "https://get.sdkman.io" | bash
+  source "$HOME/.sdkman/bin/sdkman-init.sh"
+  sdk install maven --non-interactive
 fi
 
 export JAVA_HOME=$(dirname $(dirname $(readlink -f $(which javac))))
@@ -114,11 +113,10 @@ cmake .. \
 make -j"$CORES" && make install
 
 # ============================================================
-# 4. Compila JSCIPOpt
+# 4. Compila JSCIPOpt (versione modificata con package it.prometeia.jscip)
 # ============================================================
 cd "$WORK"
-wget -q https://github.com/scipopt/JSCIPOpt/archive/refs/heads/master.zip -O jscipopt.zip
-unzip -q jscipopt.zip && mv JSCIPOpt-master JSCIPOpt
+unzip -q resources/JSCIPOpt.zip
 cd JSCIPOpt
 rm -f src/*cxx src/*h 2>/dev/null || true
 rm -rf build && mkdir build && cd build
@@ -184,3 +182,20 @@ for lib in ['$OUT/libscip.so.${SCIP_MAJOR_MINOR}', '$OUT/libjscip.so']:
 cd "$WORK"
 zip -r out.zip out/
 echo "Build Linux completata."
+
+# ============================================================
+# 7. Test Java (runTest.sh)
+# ============================================================
+mvn install:install-file \
+  -Dfile="$OUT/scip.jar" \
+  -DgroupId=com.test -DartifactId=scip -Dversion=0.0.1 -Dpackaging=jar
+
+cd "$WORK"
+unzip -q resources/ipeoptimtest.zip
+cd ipeoptimtest
+mvn clean compile
+MAVEN_OPTS="-Djava.library.path=$OUT" \
+  mvn exec:java -Dexec.mainClass="com.prometeia.test.TestIntegrazioneCoptimQuadratico"
+cd "$WORK"
+rm -rf ipeoptimtest
+echo "Test Java completato."
