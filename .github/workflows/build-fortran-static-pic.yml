@@ -2,11 +2,12 @@
 #  .github/workflows/build-fortran-static-pic.yml
 #
 #  Build libgfortran.a + libquadmath.a statiche con -fPIC.
-#  Trigger: manuale (workflow_dispatch) con parametri configurabili.
+#  Container: Amazon Linux 2023 (sia x64 che aarch64).
+#  Trigger: manuale (workflow_dispatch).
 #
-#  Usa il top-level configure di GCC + build selettivo dei soli target
-#  libquadmath/libgfortran per evitare l'errore:
-#    "Link tests are not allowed after GCC_NO_EXECUTABLES"
+#  Nota su AL2023: immagine molto minimale, mancano gcc, make, wget, tar,
+#  findutils, diffutils, binutils, flex, bison, texinfo, ecc.
+#  Tutto viene installato esplicitamente via dnf.
 # ===========================================================================
 name: Build Fortran Static PIC Libs
 
@@ -37,38 +38,54 @@ env:
   GCC_VERSION: ${{ github.event.inputs.gcc_version }}
   PREFIX: /opt/fortran-pic
 
+# ─────────────────────────────────────────────────────────────────────────
+#  Pacchetti AL2023 necessari (referenza per entrambi i job):
+#
+#  dnf install -y \
+#    gcc gcc-c++ gcc-gfortran \
+#    make automake autoconf libtool \
+#    wget tar xz gzip bzip2 \
+#    gmp-devel mpfr-devel libmpc-devel \
+#    flex bison texinfo \
+#    diffutils findutils binutils \
+#    file which patch
+# ─────────────────────────────────────────────────────────────────────────
+
 jobs:
   # ───────────────────────────────────────────────────────────────────────
-  #  Build x86_64
+  #  Build x86_64 in container AL2023
   # ───────────────────────────────────────────────────────────────────────
   build-x64:
     if: ${{ inputs.platforms == 'linux-x64' || inputs.platforms == 'both' }}
     runs-on: ubuntu-22.04
+    container:
+      image: amazonlinux:2023
     timeout-minutes: 120
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      # AL2023 non ha git → actions/checkout non funziona nel container.
+      # Non serve: scarichiamo direttamente i sorgenti GCC.
 
-      - name: Install dependencies
+      - name: Install AL2023 build dependencies
         run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq \
-            build-essential gfortran wget xz-utils \
-            libgmp-dev libmpfr-dev libmpc-dev flex
+          dnf install -y \
+            gcc gcc-c++ gcc-gfortran \
+            make automake autoconf libtool \
+            wget tar xz gzip bzip2 \
+            gmp-devel mpfr-devel libmpc-devel \
+            flex bison texinfo \
+            diffutils findutils binutils \
+            file which patch
 
-      - name: Cache GCC sources
-        uses: actions/cache@v4
-        with:
-          path: /tmp/gcc-build/gcc-${{ env.GCC_VERSION }}.tar.xz
-          key: gcc-src-${{ env.GCC_VERSION }}
+          echo "── Toolchain ──"
+          gcc --version | head -1
+          gfortran --version | head -1
+          cat /etc/system-release
 
       - name: Download & extract GCC
         run: |
           mkdir -p /tmp/gcc-build && cd /tmp/gcc-build
-          if [ ! -f "gcc-${GCC_VERSION}.tar.xz" ]; then
-            wget -q "https://ftp.gnu.org/gnu/gcc/gcc-${GCC_VERSION}/gcc-${GCC_VERSION}.tar.xz"
-          fi
+          wget -q "https://ftp.gnu.org/gnu/gcc/gcc-${GCC_VERSION}/gcc-${GCC_VERSION}.tar.xz"
           tar xf "gcc-${GCC_VERSION}.tar.xz"
           cd "gcc-${GCC_VERSION}"
           ./contrib/download_prerequisites
@@ -114,39 +131,38 @@ jobs:
       - name: Install
         run: |
           cd /tmp/gcc-build/build-pic
-          sudo make install-target-libquadmath
-          sudo make install-target-libgfortran
-          # Rimuovi eventuali .so residue
-          sudo find ${PREFIX} -name '*.so*' -delete 2>/dev/null || true
+          make install-target-libquadmath
+          make install-target-libgfortran
+          find ${PREFIX} -name '*.so*' -delete 2>/dev/null || true
 
       - name: Verify PIC
         run: |
-          echo "── libquadmath.a ──"
-          LQM=$(find ${PREFIX} -name 'libquadmath.a' -print -quit)
-          echo "path: ${LQM}"
-          ls -lh "${LQM}"
-          ABS=$(objdump -r "${LQM}" 2>/dev/null | grep -cE 'R_X86_64_32$' || true)
-          ABS=${ABS:-0}
-          echo "R_X86_64_32 relocations: ${ABS}"
-          [ "${ABS}" -eq 0 ] && echo "✓ PIC OK" || echo "⚠ possibile non-PIC (${ABS} absolute relocs)"
+          for LIB in libquadmath.a libgfortran.a; do
+            echo "── ${LIB} ──"
+            PATH_LIB=$(find ${PREFIX} -name "${LIB}" -print -quit)
+            echo "path: ${PATH_LIB}"
+            ls -lh "${PATH_LIB}"
 
-          echo ""
-          echo "── libgfortran.a ──"
-          LGF=$(find ${PREFIX} -name 'libgfortran.a' -print -quit)
-          echo "path: ${LGF}"
-          ls -lh "${LGF}"
-          ABS=$(objdump -r "${LGF}" 2>/dev/null | grep -cE 'R_X86_64_32$' || true)
-          ABS=${ABS:-0}
-          echo "R_X86_64_32 relocations: ${ABS}"
-          [ "${ABS}" -eq 0 ] && echo "✓ PIC OK" || echo "⚠ possibile non-PIC (${ABS} absolute relocs)"
+            ABS=$(objdump -r "${PATH_LIB}" 2>/dev/null | grep -cE 'R_X86_64_32$' || true)
+            ABS=${ABS:-0}
+            echo "R_X86_64_32 relocations: ${ABS}"
+            if [ "${ABS}" -eq 0 ]; then
+              echo "✓ PIC OK"
+            else
+              echo "⚠ ${ABS} absolute relocations"
+              exit 1
+            fi
+            echo ""
+          done
 
-      - name: Package artifacts
+      - name: Package
         run: |
           cd ${PREFIX}
           tar czf /tmp/fortran-static-pic-linux-x64-gcc${GCC_VERSION}.tar.gz \
-            $(find . -name '*.a' -o -name '*.spec' -o -name '*.la' -o -name '*.mod' | sort)
+            $(find . -name '*.a' -o -name '*.spec' -o -name '*.la' -o -name '*.mod' 2>/dev/null | sort)
 
       - name: Upload artifact
+        # upload-artifact funziona anche dentro container
         uses: actions/upload-artifact@v4
         with:
           name: fortran-static-pic-linux-x64-gcc${{ env.GCC_VERSION }}
@@ -154,102 +170,113 @@ jobs:
           retention-days: ${{ inputs.retention_days }}
 
   # ───────────────────────────────────────────────────────────────────────
-  #  Build aarch64 (emulato via QEMU su runner x64)
+  #  Build aarch64 in container AL2023 (via QEMU su runner x64)
   # ───────────────────────────────────────────────────────────────────────
   build-aarch64:
     if: ${{ inputs.platforms == 'linux-aarch64' || inputs.platforms == 'both' }}
     runs-on: ubuntu-22.04
-    timeout-minutes: 240
+    timeout-minutes: 300
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
         with:
           platforms: arm64
 
-      - name: Cache GCC sources
-        uses: actions/cache@v4
-        with:
-          path: /tmp/gcc-src/gcc-${{ env.GCC_VERSION }}.tar.xz
-          key: gcc-src-${{ env.GCC_VERSION }}
-
-      - name: Download GCC sources (host side)
+      - name: Download GCC sources (host side, nativo → veloce)
         run: |
-          mkdir -p /tmp/gcc-src && cd /tmp/gcc-src
+          mkdir -p /tmp/gcc-src
+          cd /tmp/gcc-src
           if [ ! -f "gcc-${GCC_VERSION}.tar.xz" ]; then
             wget -q "https://ftp.gnu.org/gnu/gcc/gcc-${GCC_VERSION}/gcc-${GCC_VERSION}.tar.xz"
           fi
 
-      - name: Build in aarch64 container
-        uses: uraimo/run-on-arch-action@v2
-        with:
-          arch: aarch64
-          distro: ubuntu22.04
-          githubToken: ${{ github.token }}
-          dockerRunArgs: |
-            --volume /tmp/gcc-src:/gcc-src
-          setup: |
-            mkdir -p /tmp/artifacts
-          artifactPath: /tmp/artifacts
-          run: |
-            set -euo pipefail
+      - name: Build in AL2023 aarch64 container
+        run: |
+          mkdir -p /tmp/artifacts
 
-            apt-get update -qq
-            apt-get install -y -qq \
-              build-essential gfortran wget xz-utils \
-              libgmp-dev libmpfr-dev libmpc-dev flex
+          docker run --rm --platform linux/arm64 \
+            -v /tmp/gcc-src:/gcc-src:ro \
+            -v /tmp/artifacts:/artifacts \
+            -e GCC_VERSION="${GCC_VERSION}" \
+            -e PREFIX="${PREFIX}" \
+            amazonlinux:2023 \
+            bash -c '
+              set -euo pipefail
 
-            WORKDIR=/tmp/gcc-build
-            PREFIX=/opt/fortran-pic
+              echo "══► Install AL2023 aarch64 dependencies"
+              dnf install -y \
+                gcc gcc-c++ gcc-gfortran \
+                make automake autoconf libtool \
+                wget tar xz gzip bzip2 \
+                gmp-devel mpfr-devel libmpc-devel \
+                flex bison texinfo \
+                diffutils findutils binutils \
+                file which patch
 
-            mkdir -p "${WORKDIR}" && cd "${WORKDIR}"
-            cp /gcc-src/gcc-${GCC_VERSION}.tar.xz .
-            tar xf gcc-${GCC_VERSION}.tar.xz
-            cd gcc-${GCC_VERSION}
-            ./contrib/download_prerequisites
+              echo "── Toolchain ──"
+              gcc --version | head -1
+              gfortran --version | head -1
+              uname -m
+              cat /etc/system-release
 
-            # Configure top-level
-            mkdir -p "${WORKDIR}/build-pic" && cd "${WORKDIR}/build-pic"
+              echo "══► Extract GCC"
+              WORKDIR=/tmp/gcc-build
+              mkdir -p "${WORKDIR}" && cd "${WORKDIR}"
+              cp /gcc-src/gcc-${GCC_VERSION}.tar.xz .
+              tar xf gcc-${GCC_VERSION}.tar.xz
+              cd gcc-${GCC_VERSION}
+              ./contrib/download_prerequisites
 
-            ${WORKDIR}/gcc-${GCC_VERSION}/configure \
-              --prefix="${PREFIX}" \
-              --enable-languages=c,fortran \
-              --disable-bootstrap \
-              --disable-multilib \
-              --disable-shared \
-              --enable-static \
-              --with-pic \
-              --disable-libsanitizer \
-              --disable-libgomp \
-              --disable-libvtv \
-              --disable-libatomic \
-              --disable-libstdcxx \
-              --disable-libssp \
-              --disable-libcc1 \
-              --disable-libitm \
-              --without-isl
+              echo "══► Configure"
+              mkdir -p "${WORKDIR}/build-pic" && cd "${WORKDIR}/build-pic"
 
-            # Build
-            make -j$(nproc) all-gcc
-            make -j$(nproc) all-target-libquadmath
-            make -j$(nproc) all-target-libgfortran
+              ${WORKDIR}/gcc-${GCC_VERSION}/configure \
+                --prefix="${PREFIX}" \
+                --enable-languages=c,fortran \
+                --disable-bootstrap \
+                --disable-multilib \
+                --disable-shared \
+                --enable-static \
+                --with-pic \
+                --disable-libsanitizer \
+                --disable-libgomp \
+                --disable-libvtv \
+                --disable-libatomic \
+                --disable-libstdcxx \
+                --disable-libssp \
+                --disable-libcc1 \
+                --disable-libitm \
+                --without-isl
 
-            # Install
-            make install-target-libquadmath
-            make install-target-libgfortran
-            find ${PREFIX} -name '*.so*' -delete 2>/dev/null || true
+              echo "══► Build compiler stage"
+              make -j$(nproc) all-gcc
 
-            # Verify
-            echo "── Installed libs ──"
-            find ${PREFIX} -name '*.a' -exec ls -lh {} \;
+              echo "══► Build libquadmath"
+              make -j$(nproc) all-target-libquadmath
 
-            # Package
-            cd ${PREFIX}
-            tar czf /tmp/artifacts/fortran-static-pic-linux-aarch64-gcc${GCC_VERSION}.tar.gz \
-              $(find . -name '*.a' -o -name '*.spec' -o -name '*.la' -o -name '*.mod' | sort)
+              echo "══► Build libgfortran"
+              make -j$(nproc) all-target-libgfortran
+
+              echo "══► Install"
+              make install-target-libquadmath
+              make install-target-libgfortran
+              find ${PREFIX} -name "*.so*" -delete 2>/dev/null || true
+
+              echo "══► Verify"
+              for LIB in libquadmath.a libgfortran.a; do
+                echo "── ${LIB} ──"
+                P=$(find ${PREFIX} -name "${LIB}" -print -quit)
+                ls -lh "${P}"
+              done
+
+              echo "══► Package"
+              cd ${PREFIX}
+              tar czf /artifacts/fortran-static-pic-linux-aarch64-gcc${GCC_VERSION}.tar.gz \
+                $(find . -name "*.a" -o -name "*.spec" -o -name "*.la" -o -name "*.mod" 2>/dev/null | sort)
+
+              echo "══► Done (aarch64)"
+            '
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -268,11 +295,12 @@ jobs:
     steps:
       - name: Summary
         run: |
-          echo "## Build Fortran Static PIC Libs" >> $GITHUB_STEP_SUMMARY
+          echo "## Build Fortran Static PIC Libs (AL2023)" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "| Parametro | Valore |" >> $GITHUB_STEP_SUMMARY
           echo "|-----------|--------|" >> $GITHUB_STEP_SUMMARY
           echo "| GCC | ${{ env.GCC_VERSION }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Container | Amazon Linux 2023 |" >> $GITHUB_STEP_SUMMARY
           echo "| Piattaforme | ${{ inputs.platforms }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Retention | ${{ inputs.retention_days }} giorni |" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
