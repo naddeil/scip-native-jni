@@ -22,7 +22,8 @@ mkdir -p "$PREFIX" "$PREFIX/include" "$PREFIX/lib" "$OUT"
 dnf install -y --allowerasing \
   gcc gcc-c++ gcc-gfortran make cmake wget curl git unzip zip which \
   tar xz bzip2 patch diffutils pkgconfig m4 perl \
-  java-11-amazon-corretto-devel maven.noarch patchelf swig python3
+  java-11-amazon-corretto-devel maven.noarch patchelf swig python3\
+  libgfortran-static libquadmath-static
 export JAVA_HOME=$(dirname $(dirname $(readlink -f $(which javac))))
 
 
@@ -46,12 +47,12 @@ ln -sf /usr/bin/wget /usr/local/bin/wget 2>/dev/null || true
 
 curl -LO https://ftp.gnu.org/gnu/gmp/gmp-6.3.0.tar.xz
 tar xf gmp-6.3.0.tar.xz && cd gmp-6.3.0
-CFLAGS="-O3 -fPIC" ./configure --prefix="$PREFIX"
-make -s -j"$CORES" && make -s install && cd ..
+CFLAGS="-O3 -fPIC" ./configure --prefix="$PREFIX" --disable-shared --enable-static
+  make -s -j"$CORES" && make -s install && cd ..
 
 curl -LO https://www.mpfr.org/mpfr-current/mpfr-4.2.2.tar.xz
 tar xf mpfr-4.2.2.tar.xz && cd mpfr-4.2.2
-CFLAGS="-O3 -fPIC" ./configure --prefix="$PREFIX" --with-gmp="$PREFIX"
+CFLAGS="-O3 -fPIC" ./configure --prefix="$PREFIX" --with-gmp="$PREFIX" --disable-shared --enable-static
 make -s -j"$CORES" && make -s install && cd ..
 
 curl -LO https://archives.boost.io/release/1.85.0/source/boost_1_85_0.tar.bz2
@@ -65,10 +66,8 @@ tar xf boost_1_85_0.tar.bz2 && cd boost_1_85_0
 wget -q https://github.com/OpenMathLib/OpenBLAS/releases/download/v0.3.30/OpenBLAS-0.3.30.zip
 unzip -q OpenBLAS-0.3.30.zip && mv OpenBLAS-0.3.30 OpenBLAS && cd OpenBLAS
 unset CFLAGS CXXFLAGS LDFLAGS LIBRARY_PATH LD_LIBRARY_PATH CPATH PKG_CONFIG_PATH 2>/dev/null || true
-make -s -j"$CORES" NO_SHARED=0 DYNAMIC_ARCH=1 USE_OPENMP=0 CC=/usr/bin/gcc FC=/usr/bin/gfortran
+make -s -j"$CORES" NO_SHARED=1 DYNAMIC_ARCH=1 USE_OPENMP=0 CC=/usr/bin/gcc FC=/usr/bin/gfortran
 make -s PREFIX="$PREFIX" install
-ln -sf "$PREFIX/lib/libopenblas.so" "$PREFIX/lib/libblas.so"
-ln -sf "$PREFIX/lib/libopenblas.so" "$PREFIX/lib/liblapack.so"
 cd ..
 
 # -----------------------------------------------------------
@@ -119,10 +118,9 @@ export FFLAGS="-O3 -fPIC"
 ./coinbrew build Ipopt \
   --prefix="$PREFIX" \
   --no-prompt \
-  --verbosity=3 \
-  --enable-shared=yes \
-  --enable-static=no \
-  --enable-sipopt=no \
+  --verbosity=1 \
+  --enable-shared=no \   
+  --enable-static=yes \        
   --with-lapack-lflags="-L$PREFIX/lib -lopenblas"
   # --with-metis-cflags="$METIS_CFLAGS" \
   # --with-metis-lflags="$METIS_LFLAGS" \
@@ -160,6 +158,7 @@ cmake .. \
   -DCMAKE_C_FLAGS="-O3 -fPIC" \
   -DCMAKE_CXX_FLAGS="-O3 -fPIC -DCPPAD_MAX_NUM_THREADS=1024" \
   -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+  -DCMAKE_SHARED_LINKER_FLAGS="-static-libgfortran -static-libquadmath" \ 
   -DSHARED=$SHARED_FLAG \
   -DBUILD_SHARED_LIBS=$BUILD_SHARED \
   -DREADLINE=off \
@@ -204,29 +203,9 @@ cp "$WORK/JSCIPOpt/build/Release/scip.jar" "$OUT/"
 cp -L "$WORK/JSCIPOpt/build/Release/libjscip.so" "$OUT/"
 cp -L "$WORK/scipoptsuite/build/lib/libscip.so" "$OUT/libscip.so.${SCIP_MAJOR_MINOR}"
 
-# Dipendenze runtime dal prefix custom
-# libopenblas.so copre sia BLAS che LAPACK per tutti i consumer.
-for lib in libmpfr.so libopenblas.so libgmp.so libipopt.so; do
-  [ -f "$PREFIX/lib/$lib" ] && cp -L "$PREFIX/lib/$lib" "$OUT/" || true
-done
-cp -L "$PREFIX/lib/libcoinmumps.so" "$OUT/" 2>/dev/null || true
-
-
-# Librerie di sistema
-for syslib in libgcc_s.so.1 libgfortran.so.5 libstdc++.so.6 libquadmath.so.0 libc.so.6 libm.so.6; do
-  FOUND=$(find /usr/lib64 /lib64 /usr/lib -name "$syslib" 2>/dev/null | head -1) || true
-  [ -n "${FOUND:-}" ] && cp -L "$FOUND" "$OUT/" || true
-done
-
-# Rinomina con soname (solo lib con soname convenzionale noto)
-cd "$OUT"
-[ -f libmpfr.so ]      && mv libmpfr.so      libmpfr.so.6
-[ -f libopenblas.so ]  && mv libopenblas.so  libopenblas.so.0
-[ -f libgmp.so ]       && mv libgmp.so       libgmp.so.10
-[ -f libipopt.so ]     && mv libipopt.so     libipopt.so.3
-[ -f libcoinmumps.so ] && mv libcoinmumps.so libcoinmumps.so.3
 
 # Fix rpath — $ORIGIN permette di caricare le dipendenze dalla stessa cartella
+cd "$OUT"
 for f in *.so*; do
   patchelf --set-rpath '$ORIGIN' "$f" 2>/dev/null || true
 done
