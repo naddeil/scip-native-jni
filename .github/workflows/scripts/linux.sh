@@ -17,6 +17,8 @@ dnf install -y --allowerasing \
   gcc gcc-c++ gcc-gfortran make cmake wget curl git unzip zip which \
   tar xz bzip2 patch diffutils pkgconfig m4 perl \
   java-11-amazon-corretto-devel maven.noarch patchelf swig python3 glibc-static libstdc++-static
+# Rimuovi JDK 17 (default AL2023) per forzare JDK 11
+dnf remove -y java-17-amazon-corretto* 2>/dev/null || true
 export JAVA_HOME=$(dirname $(dirname $(readlink -f $(which javac))))
 
 
