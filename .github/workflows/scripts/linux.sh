@@ -43,11 +43,14 @@ ln -sf /usr/bin/wget /usr/local/bin/wget 2>/dev/null || true
 #   - Boost multiprecision library for rationals in SCIP (and PaPILO, if linked),
 #   - MPFR for approximating rationals with floating-point numbers in SCIP
 # -----------------------------------------------------------
+# CFLAGS="-O3 -fPIC"  ./configure --prefix="$PREFIX"
+# make -j$CORES && make install
+# cd ..
 
 curl -LO "https://ftp.gnu.org/gnu/gmp/gmp-${GMP_VERSION}.tar.xz"
 tar xf "gmp-${GMP_VERSION}.tar.xz" && cd "gmp-${GMP_VERSION}"
-CFLAGS="-O3 -fPIC" ./configure --prefix="$PREFIX" --disable-shared --enable-static
-  make -s -j"$CORES" && make -s install && cd ..
+CFLAGS="-O3 -fPIC" CPPFLAGS="-DPIC" ./configure --prefix="$PREFIX" --with-pic --disable-shared
+make -s -j"$CORES" && make -s install && cd ..
 
 # curl -LO "https://www.mpfr.org/mpfr-current/mpfr-${MPFR_VERSION}.tar.xz"
 # tar xf "mpfr-${MPFR_VERSION}.tar.xz" && cd "mpfr-${MPFR_VERSION}"
@@ -219,7 +222,6 @@ cmake .. \
   -DBUILD_SHARED_LIBS=ON \
   -DREADLINE=off \
   -DGMP=on \
-  -DSTATIC_GMP=on \
   -DGMP_DIR="$PREFIX" \
   -DZIMPL=off \
   -DLPS=spx \
@@ -261,6 +263,9 @@ rm -rf "$OUT"/*
 cp "$WORK/JSCIPOpt/build/Release/scip.jar" "$OUT/"
 cp -L "$WORK/JSCIPOpt/build/Release/libjscip.so" "$OUT/"
 cp -L "$WORK/scipoptsuite/build/lib/libscip.so" "$OUT/libscip.so.${SCIP_MAJOR_MINOR}"
+
+# GMP resta shared (assembly ottimizzato richiede PIC nativo)
+cp -L "$PREFIX/lib/libgmp.so" "$OUT/libgmp.so.10"
 
 
 # Fix rpath — $ORIGIN permette di caricare le dipendenze dalla stessa cartella
