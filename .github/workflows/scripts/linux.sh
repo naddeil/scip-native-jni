@@ -164,6 +164,7 @@ rm -rf build && mkdir -p build && cd build
 # (via Mumps) quindi SCIP non ha bisogno di linkarla separatamente.
 
 EXTRA_LINKER_FLAGS="-static-libgfortran -static-libquadmath"
+GMP_LINK="-L${PREFIX}/lib -lgmp"
 # if [ "${STATIC:-false}" = "true" ]; then
 #   EXTRA_LINKER_FLAGS="-static-libgfortran -static-libquadmath"
 # else
@@ -179,7 +180,8 @@ cmake .. \
   -DCMAKE_C_FLAGS="-O3 -fPIC" \
   -DCMAKE_CXX_FLAGS="-O3 -fPIC -DCPPAD_MAX_NUM_THREADS=1024" \
   -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
-  -DCMAKE_SHARED_LINKER_FLAGS="${EXTRA_LINKER_FLAGS}" \
+  -DCMAKE_SHARED_LINKER_FLAGS="${EXTRA_LINKER_FLAGS} ${GMP_LINK}" \
+  -DCMAKE_EXE_LINKER_FLAGS="${EXTRA_LINKER_FLAGS} ${GMP_LINK}" \
   -DSHARED=ON \
   -DBUILD_SHARED_LIBS=ON \
   -DREADLINE=off \
