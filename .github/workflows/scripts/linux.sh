@@ -103,6 +103,13 @@ find "$PREFIX" -name '*.so*' -delete 2>/dev/null || true
 find "$PREFIX" -name 'libgfortran.a' -exec cp {} "$PREFIX/lib/" \;
 find "$PREFIX" -name 'libquadmath.a' -exec cp {} "$PREFIX/lib/" \;
 
+# Symlink nel path di sistema del compilatore — serve perché coinbrew --static
+# setta LDFLAGS=-static e il configure di Mumps cerca -lgfortran nei path standard
+GCC_LIB_DIR=$(dirname "$(gfortran -print-libgcc-file-name)")
+ln -sf "$PREFIX/lib/libgfortran.a" "$GCC_LIB_DIR/libgfortran.a"
+ln -sf "$PREFIX/lib/libquadmath.a" "$GCC_LIB_DIR/libquadmath.a"
+echo ">>> Symlink in $GCC_LIB_DIR"
+
 echo ">>> Verifica PIC libgfortran/libquadmath:"
 for LIB in libquadmath.a libgfortran.a; do
   P=$(find "$PREFIX" -name "$LIB" -print -quit)
