@@ -3,7 +3,10 @@
 #
 #  Build libgfortran.a + libquadmath.a statiche con -fPIC.
 #  Trigger: manuale (workflow_dispatch) con parametri configurabili.
-#  Produce artifacts scaricabili per linux-x64 e/o linux-aarch64.
+#
+#  Usa il top-level configure di GCC + build selettivo dei soli target
+#  libquadmath/libgfortran per evitare l'errore:
+#    "Link tests are not allowed after GCC_NO_EXECUTABLES"
 # ===========================================================================
 name: Build Fortran Static PIC Libs
 
@@ -11,7 +14,7 @@ on:
   workflow_dispatch:
     inputs:
       gcc_version:
-        description: "Versione GCC da compilare"
+        description: "Versione GCC"
         required: true
         default: "13.2.0"
         type: string
@@ -33,7 +36,6 @@ on:
 env:
   GCC_VERSION: ${{ github.event.inputs.gcc_version }}
   PREFIX: /opt/fortran-pic
-  WORKDIR: /tmp/gcc-build
 
 jobs:
   # ───────────────────────────────────────────────────────────────────────
@@ -61,62 +63,86 @@ jobs:
           path: /tmp/gcc-build/gcc-${{ env.GCC_VERSION }}.tar.xz
           key: gcc-src-${{ env.GCC_VERSION }}
 
-      - name: Download GCC ${{ env.GCC_VERSION }}
+      - name: Download & extract GCC
         run: |
-          mkdir -p "${WORKDIR}"
-          cd "${WORKDIR}"
+          mkdir -p /tmp/gcc-build && cd /tmp/gcc-build
           if [ ! -f "gcc-${GCC_VERSION}.tar.xz" ]; then
             wget -q "https://ftp.gnu.org/gnu/gcc/gcc-${GCC_VERSION}/gcc-${GCC_VERSION}.tar.xz"
           fi
           tar xf "gcc-${GCC_VERSION}.tar.xz"
+          cd "gcc-${GCC_VERSION}"
+          ./contrib/download_prerequisites
 
-      - name: Build libquadmath (static + PIC)
+      - name: Configure (top-level, --with-pic)
         run: |
-          cd "${WORKDIR}/gcc-${GCC_VERSION}/libquadmath"
-          mkdir -p build-pic && cd build-pic
-          CFLAGS="-fPIC -O2" FCFLAGS="-fPIC -O2" CXXFLAGS="-fPIC -O2" \
-          ../configure \
-            --host=x86_64-linux-gnu \
-            --prefix="${PREFIX}" \
-            --disable-shared \
-            --enable-static
-          make -j$(nproc)
-          sudo make install
+          mkdir -p /tmp/gcc-build/build-pic
+          cd /tmp/gcc-build/build-pic
 
-      - name: Build libgfortran (static + PIC)
-        run: |
-          cd "${WORKDIR}/gcc-${GCC_VERSION}/libgfortran"
-          mkdir -p build-pic && cd build-pic
-          CFLAGS="-fPIC -O2" FCFLAGS="-fPIC -O2" CXXFLAGS="-fPIC -O2" \
-          LDFLAGS="-L${PREFIX}/lib" \
-          ../configure \
-            --host=x86_64-linux-gnu \
+          /tmp/gcc-build/gcc-${GCC_VERSION}/configure \
             --prefix="${PREFIX}" \
+            --enable-languages=c,fortran \
+            --disable-bootstrap \
+            --disable-multilib \
             --disable-shared \
             --enable-static \
-            --with-libquadmath-support
-          make -j$(nproc)
-          sudo make install
+            --with-pic \
+            --disable-libsanitizer \
+            --disable-libgomp \
+            --disable-libvtv \
+            --disable-libatomic \
+            --disable-libstdcxx \
+            --disable-libssp \
+            --disable-libcc1 \
+            --disable-libitm \
+            --without-isl
+
+      - name: Build GCC (compiler stage)
+        run: |
+          cd /tmp/gcc-build/build-pic
+          make -j$(nproc) all-gcc
+
+      - name: Build libquadmath
+        run: |
+          cd /tmp/gcc-build/build-pic
+          make -j$(nproc) all-target-libquadmath
+
+      - name: Build libgfortran
+        run: |
+          cd /tmp/gcc-build/build-pic
+          make -j$(nproc) all-target-libgfortran
+
+      - name: Install
+        run: |
+          cd /tmp/gcc-build/build-pic
+          sudo make install-target-libquadmath
+          sudo make install-target-libgfortran
+          # Rimuovi eventuali .so residue
+          sudo find ${PREFIX} -name '*.so*' -delete 2>/dev/null || true
 
       - name: Verify PIC
         run: |
           echo "── libquadmath.a ──"
-          objdump -r ${PREFIX}/lib/libquadmath.a 2>/dev/null | grep -c 'R_X86_64_32$' || echo "0 absolute relocations (PIC OK)"
-          ls -lh ${PREFIX}/lib/libquadmath.a
+          LQM=$(find ${PREFIX} -name 'libquadmath.a' -print -quit)
+          echo "path: ${LQM}"
+          ls -lh "${LQM}"
+          ABS=$(objdump -r "${LQM}" 2>/dev/null | grep -cE 'R_X86_64_32$' || echo "0")
+          echo "R_X86_64_32 relocations: ${ABS}"
+          [ "${ABS}" -eq 0 ] && echo "✓ PIC OK" || echo "⚠ possibile non-PIC"
 
+          echo ""
           echo "── libgfortran.a ──"
-          objdump -r ${PREFIX}/lib/libgfortran.a 2>/dev/null | grep -c 'R_X86_64_32$' || echo "0 absolute relocations (PIC OK)"
-          ls -lh ${PREFIX}/lib/libgfortran.a
+          LGF=$(find ${PREFIX} -name 'libgfortran.a' -print -quit)
+          echo "path: ${LGF}"
+          ls -lh "${LGF}"
+          ABS=$(objdump -r "${LGF}" 2>/dev/null | grep -cE 'R_X86_64_32$' || echo "0")
+          echo "R_X86_64_32 relocations: ${ABS}"
+          [ "${ABS}" -eq 0 ] && echo "✓ PIC OK" || echo "⚠ possibile non-PIC"
 
       - name: Package artifacts
         run: |
           cd ${PREFIX}
           tar czf /tmp/fortran-static-pic-linux-x64-gcc${GCC_VERSION}.tar.gz \
-            lib/libgfortran.a \
-            lib/libquadmath.a \
-            lib/libgfortran.spec \
-            $(find lib -name '*.la' 2>/dev/null || true) \
-            $(find include -type f 2>/dev/null || true)
+            $(find . -name '*.a' -o -name '*.spec' -o -name '*.la' -o -name '*.mod' | sort)
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -131,7 +157,7 @@ jobs:
   build-aarch64:
     if: ${{ inputs.platforms == 'linux-aarch64' || inputs.platforms == 'both' }}
     runs-on: ubuntu-22.04
-    timeout-minutes: 180
+    timeout-minutes: 240
 
     steps:
       - name: Checkout
@@ -148,10 +174,9 @@ jobs:
           path: /tmp/gcc-src/gcc-${{ env.GCC_VERSION }}.tar.xz
           key: gcc-src-${{ env.GCC_VERSION }}
 
-      - name: Download GCC sources (host)
+      - name: Download GCC sources (host side)
         run: |
-          mkdir -p /tmp/gcc-src
-          cd /tmp/gcc-src
+          mkdir -p /tmp/gcc-src && cd /tmp/gcc-src
           if [ ! -f "gcc-${GCC_VERSION}.tar.xz" ]; then
             wget -q "https://ftp.gnu.org/gnu/gcc/gcc-${GCC_VERSION}/gcc-${GCC_VERSION}.tar.xz"
           fi
@@ -176,50 +201,53 @@ jobs:
               libgmp-dev libmpfr-dev libmpc-dev flex
 
             WORKDIR=/tmp/gcc-build
-            mkdir -p "${WORKDIR}"
-            cd "${WORKDIR}"
-            cp /gcc-src/gcc-${GCC_VERSION}.tar.xz .
-            tar xf gcc-${GCC_VERSION}.tar.xz
-
             PREFIX=/opt/fortran-pic
 
-            # libquadmath
-            cd ${WORKDIR}/gcc-${GCC_VERSION}/libquadmath
-            mkdir -p build-pic && cd build-pic
-            CFLAGS="-fPIC -O2" FCFLAGS="-fPIC -O2" CXXFLAGS="-fPIC -O2" \
-            ../configure \
-              --host=aarch64-linux-gnu \
-              --prefix="${PREFIX}" \
-              --disable-shared \
-              --enable-static
-            make -j$(nproc)
-            make install
+            mkdir -p "${WORKDIR}" && cd "${WORKDIR}"
+            cp /gcc-src/gcc-${GCC_VERSION}.tar.xz .
+            tar xf gcc-${GCC_VERSION}.tar.xz
+            cd gcc-${GCC_VERSION}
+            ./contrib/download_prerequisites
 
-            # libgfortran
-            cd ${WORKDIR}/gcc-${GCC_VERSION}/libgfortran
-            mkdir -p build-pic && cd build-pic
-            CFLAGS="-fPIC -O2" FCFLAGS="-fPIC -O2" CXXFLAGS="-fPIC -O2" \
-            LDFLAGS="-L${PREFIX}/lib" \
-            ../configure \
-              --host=aarch64-linux-gnu \
+            # Configure top-level
+            mkdir -p "${WORKDIR}/build-pic" && cd "${WORKDIR}/build-pic"
+
+            ${WORKDIR}/gcc-${GCC_VERSION}/configure \
               --prefix="${PREFIX}" \
+              --enable-languages=c,fortran \
+              --disable-bootstrap \
+              --disable-multilib \
               --disable-shared \
               --enable-static \
-              --with-libquadmath-support
-            make -j$(nproc)
-            make install
+              --with-pic \
+              --disable-libsanitizer \
+              --disable-libgomp \
+              --disable-libvtv \
+              --disable-libatomic \
+              --disable-libstdcxx \
+              --disable-libssp \
+              --disable-libcc1 \
+              --disable-libitm \
+              --without-isl
+
+            # Build
+            make -j$(nproc) all-gcc
+            make -j$(nproc) all-target-libquadmath
+            make -j$(nproc) all-target-libgfortran
+
+            # Install
+            make install-target-libquadmath
+            make install-target-libgfortran
+            find ${PREFIX} -name '*.so*' -delete 2>/dev/null || true
 
             # Verify
-            ls -lh ${PREFIX}/lib/libgfortran.a ${PREFIX}/lib/libquadmath.a
+            echo "── Installed libs ──"
+            find ${PREFIX} -name '*.a' -exec ls -lh {} \;
 
             # Package
             cd ${PREFIX}
             tar czf /tmp/artifacts/fortran-static-pic-linux-aarch64-gcc${GCC_VERSION}.tar.gz \
-              lib/libgfortran.a \
-              lib/libquadmath.a \
-              lib/libgfortran.spec \
-              $(find lib -name '*.la' 2>/dev/null || true) \
-              $(find include -type f 2>/dev/null || true)
+              $(find . -name '*.a' -o -name '*.spec' -o -name '*.la' -o -name '*.mod' | sort)
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -247,5 +275,5 @@ jobs:
           echo "| Retention | ${{ inputs.retention_days }} giorni |" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### Jobs" >> $GITHUB_STEP_SUMMARY
-          echo "- x64: **${{ needs.build-x64.result }}**" >> $GITHUB_STEP_SUMMARY
-          echo "- aarch64: **${{ needs.build-aarch64.result }}**" >> $GITHUB_STEP_SUMMARY
+          echo "- **x64**: ${{ needs.build-x64.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **aarch64**: ${{ needs.build-aarch64.result }}" >> $GITHUB_STEP_SUMMARY
