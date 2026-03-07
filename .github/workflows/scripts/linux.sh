@@ -16,8 +16,7 @@ mkdir -p "$PREFIX" "$PREFIX/include" "$PREFIX/lib" "$OUT"
 dnf install -y --allowerasing \
   gcc gcc-c++ gcc-gfortran make cmake wget curl git unzip zip which \
   tar xz bzip2 patch diffutils pkgconfig m4 perl \
-  java-11-amazon-corretto-devel maven.noarch patchelf swig python3\
-  libgfortran-static libquadmath-static glibc-static libstdc++-static
+  java-11-amazon-corretto-devel maven.noarch patchelf swig python3
 export JAVA_HOME=$(dirname $(dirname $(readlink -f $(which javac))))
 
 
@@ -56,6 +55,57 @@ curl -LO https://archives.boost.io/release/1.85.0/source/boost_1_85_0.tar.bz2
 tar xf boost_1_85_0.tar.bz2 && cd boost_1_85_0
 ./bootstrap.sh --with-libraries=program_options,serialization,regex,random,iostreams --prefix="$PREFIX"
 ./b2 -j"$CORES" -d0 link=static runtime-link=static cxxflags="-fPIC -O3" install && cd ..
+
+# -----------------------------------------------------------
+# libgfortran.a + libquadmath.a statiche con -fPIC
+# Le versioni di sistema (libgfortran-static) non hanno -fPIC,
+# quindi ricompiliamo GCC target libraries con --with-pic.
+# -----------------------------------------------------------
+echo ">>> Build libgfortran.a + libquadmath.a con -fPIC (GCC ${GCC_VERSION}) …"
+FORTRAN_BUILD="$WORK/staticdepsinstall/gcc-fortran-pic"
+mkdir -p "$FORTRAN_BUILD" && cd "$FORTRAN_BUILD"
+wget -q "https://ftp.gnu.org/gnu/gcc/gcc-${GCC_VERSION}/gcc-${GCC_VERSION}.tar.xz"
+tar xf "gcc-${GCC_VERSION}.tar.xz"
+cd "gcc-${GCC_VERSION}"
+./contrib/download_prerequisites
+
+mkdir -p "$FORTRAN_BUILD/build" && cd "$FORTRAN_BUILD/build"
+"$FORTRAN_BUILD/gcc-${GCC_VERSION}/configure" \
+  --prefix="$PREFIX" \
+  --enable-languages=c,fortran \
+  --disable-bootstrap \
+  --disable-multilib \
+  --disable-shared \
+  --enable-static \
+  --with-pic \
+  --disable-libsanitizer \
+  --disable-libgomp \
+  --disable-libvtv \
+  --disable-libatomic \
+  --disable-libstdcxx \
+  --disable-libssp \
+  --disable-libcc1 \
+  --disable-libitm \
+  --without-isl
+
+make -s -j"$CORES" all-gcc
+make -s -j"$CORES" all-target-libquadmath
+make -s -j"$CORES" all-target-libgfortran
+make install-target-libquadmath
+make install-target-libgfortran
+find "$PREFIX" -name '*.so*' -delete 2>/dev/null || true
+
+# Copia le .a in $PREFIX/lib per uniformità (GCC le installa in lib/gcc/...)
+find "$PREFIX" -name 'libgfortran.a' -exec cp {} "$PREFIX/lib/" \;
+find "$PREFIX" -name 'libquadmath.a' -exec cp {} "$PREFIX/lib/" \;
+
+echo ">>> Verifica PIC libgfortran/libquadmath:"
+for LIB in libquadmath.a libgfortran.a; do
+  P=$(find "$PREFIX" -name "$LIB" -print -quit)
+  echo "  $LIB → $P ($(ls -lh "$P" | awk '{print $5}'))"
+done
+
+cd "$WORK/staticdepsinstall"
 
 # -----------------------------------------------------------
 # OpenBLAS — BLAS + LAPACK + LAPACKE ottimizzati
@@ -137,6 +187,11 @@ rm -rf build && mkdir -p build && cd build
 # -DLAPACK=on passato da fuori. IPOPT porta già la propria dipendenza BLAS/LAPACK
 # (via Mumps) quindi SCIP non ha bisogno di linkarla separatamente.
 
+# Trova le .a di Fortran compilate con -fPIC
+LIBGFORTRAN_A=$(find "$PREFIX" -name 'libgfortran.a' -print -quit)
+LIBQUADMATH_A=$(find "$PREFIX" -name 'libquadmath.a' -print -quit)
+echo "Fortran static libs: $LIBGFORTRAN_A $LIBQUADMATH_A"
+
 cmake .. \
   -G "Unix Makefiles" \
   -DCMAKE_BUILD_TYPE=Release \
@@ -146,7 +201,7 @@ cmake .. \
   -DCMAKE_C_FLAGS="-O3 -fPIC" \
   -DCMAKE_CXX_FLAGS="-O3 -fPIC -DCPPAD_MAX_NUM_THREADS=1024" \
   -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
-  -DCMAKE_SHARED_LINKER_FLAGS="-static-libgfortran" \
+  -DCMAKE_SHARED_LINKER_FLAGS="$LIBGFORTRAN_A $LIBQUADMATH_A" \
   -DSHARED=ON \
   -DBUILD_SHARED_LIBS=ON \
   -DREADLINE=off \
