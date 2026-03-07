@@ -97,57 +97,57 @@ cd ..
 # METIS 5.1.1 — ordinamento matrice sparsa
 # Migliora MUMPS e SPRAL sui problemi di portfolio (matrici sparse grandi)
 # -----------------------------------------------------------
-cd "$WORK/staticdepsinstall"
+# cd "$WORK/staticdepsinstall"
 
-wget -q https://github.com/KarypisLab/GKlib/archive/refs/tags/METIS-v5.1.1-DistDGL-0.5.tar.gz
-tar -xf METIS-v5.1.1-DistDGL-0.5.tar.gz
-GKLIB_SRC="$WORK/staticdepsinstall/GKlib-METIS-v5.1.1-DistDGL-0.5"
-cd GKlib-METIS-v5.1.1-DistDGL-0.5
-sed -i 's/^CONFIG_FLAGS =/CONFIG_FLAGS = -DCMAKE_POLICY_VERSION_MINIMUM=3.5/' Makefile
-make config prefix="$GKLIB_SRC"
-make -j"$CORES" && make install
-cd ..
+# wget -q https://github.com/KarypisLab/GKlib/archive/refs/tags/METIS-v5.1.1-DistDGL-0.5.tar.gz
+# tar -xf METIS-v5.1.1-DistDGL-0.5.tar.gz
+# GKLIB_SRC="$WORK/staticdepsinstall/GKlib-METIS-v5.1.1-DistDGL-0.5"
+# cd GKlib-METIS-v5.1.1-DistDGL-0.5
+# sed -i 's/^CONFIG_FLAGS =/CONFIG_FLAGS = -DCMAKE_POLICY_VERSION_MINIMUM=3.5/' Makefile
+# make config prefix="$GKLIB_SRC"
+# make -j"$CORES" && make install
+# cd ..
 
-wget -q https://github.com/KarypisLab/METIS/archive/refs/tags/v5.1.1-DistDGL-v0.5.tar.gz
-tar -xf v5.1.1-DistDGL-v0.5.tar.gz
-cd METIS-5.1.1-DistDGL-v0.5
-sed -i 's/^CONFIG_FLAGS =/CONFIG_FLAGS = -DCMAKE_POLICY_VERSION_MINIMUM=3.5/' Makefile
-make config prefix="$PREFIX" gklib_path="$GKLIB_SRC"
-make -j"$CORES" && make install
-cd ..
+# wget -q https://github.com/KarypisLab/METIS/archive/refs/tags/v5.1.1-DistDGL-v0.5.tar.gz
+# tar -xf v5.1.1-DistDGL-v0.5.tar.gz
+# cd METIS-5.1.1-DistDGL-v0.5
+# sed -i 's/^CONFIG_FLAGS =/CONFIG_FLAGS = -DCMAKE_POLICY_VERSION_MINIMUM=3.5/' Makefile
+# make config prefix="$PREFIX" gklib_path="$GKLIB_SRC"
+# make -j"$CORES" && make install
+# cd ..
 
-METIS_CFLAGS="-I$PREFIX/include"
-METIS_LFLAGS="-L$PREFIX/lib -lmetis -lm"
+# METIS_CFLAGS="-I$PREFIX/include"
+# METIS_LFLAGS="-L$PREFIX/lib -lmetis -lm"
 
 # -----------------------------------------------------------
 # SPRAL (BSD — free anche commerciale)
 # Versioni >= 2023.03.29 usano CMake (non autotools)
 # Dipende da: METIS, OpenBLAS, hwloc, gfortran/OpenMP
 # -----------------------------------------------------------
-cd "$WORK/staticdepsinstall"
+# cd "$WORK/staticdepsinstall"
 
-git clone --depth=1 https://github.com/ralna/spral.git
-cd spral
-mkdir -p build && cd build
+# git clone --depth=1 https://github.com/ralna/spral.git
+# cd spral
+# mkdir -p build && cd build
 
-cmake .. \
-  -DCMAKE_INSTALL_PREFIX="$PREFIX" \
-  -DCMAKE_BUILD_TYPE=Release \
-  -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
-  -DCMAKE_C_FLAGS="-O3 -fPIC" \
-  -DCMAKE_CXX_FLAGS="-O3 -fPIC" \
-  -DCMAKE_Fortran_FLAGS="-O3 -fPIC" \
-  -DBUILD_SHARED_LIBS=ON \
-  -DMETIS_DIR="$PREFIX" \
-  -DBLAS_LIBRARIES="$PREFIX/lib/libopenblas.so" \
-  -DLAPACK_LIBRARIES="$PREFIX/lib/libopenblas.so"
+# cmake .. \
+#   -DCMAKE_INSTALL_PREFIX="$PREFIX" \
+#   -DCMAKE_BUILD_TYPE=Release \
+#   -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
+#   -DCMAKE_C_FLAGS="-O3 -fPIC" \
+#   -DCMAKE_CXX_FLAGS="-O3 -fPIC" \
+#   -DCMAKE_Fortran_FLAGS="-O3 -fPIC" \
+#   -DBUILD_SHARED_LIBS=ON \
+#   -DBLAS_LIBRARIES="$PREFIX/lib/libopenblas.so" \
+#   -DLAPACK_LIBRARIES="$PREFIX/lib/libopenblas.so"
+#   -DMETIS_DIR="$PREFIX" \
 
-make -j"$CORES" && make install
+# make -j"$CORES" && make install
 
-# Legge il soname reale prodotto dalla build per gestire la copia in output
-SPRAL_SONAME=$(objdump -p "$PREFIX/lib/libspral.so" 2>/dev/null | awk '/SONAME/{print $2}' || echo "")
-echo "SPRAL soname rilevato: ${SPRAL_SONAME:-nessuno}"
-cd ../..
+# # Legge il soname reale prodotto dalla build per gestire la copia in output
+# SPRAL_SONAME=$(objdump -p "$PREFIX/lib/libspral.so" 2>/dev/null | awk '/SONAME/{print $2}' || echo "")
+# echo "SPRAL soname rilevato: ${SPRAL_SONAME:-nessuno}"
+# cd ../..
 
 # -----------------------------------------------------------
 # IPOPT via coinbrew
@@ -174,11 +174,11 @@ export FFLAGS="-O3 -fPIC"
   --enable-shared=yes \
   --enable-static=no \
   --enable-sipopt=no \
-  --with-metis-cflags="$METIS_CFLAGS" \
-  --with-metis-lflags="$METIS_LFLAGS" \
-  --with-lapack-lflags="-L$PREFIX/lib -lopenblas" \
-  --with-spral-cflags="-I$PREFIX/include" \
-  --with-spral-lflags="-L$PREFIX/lib -lspral -lgfortran -lhwloc -lm $METIS_LFLAGS -lopenblas -lstdc++ -fopenmp" \
+  --with-lapack-lflags="-L$PREFIX/lib -lopenblas"
+  # --with-metis-cflags="$METIS_CFLAGS" \
+  # --with-metis-lflags="$METIS_LFLAGS" \
+  # --with-spral-cflags="-I$PREFIX/include" \
+  # --with-spral-lflags="-L$PREFIX/lib -lspral -lgfortran -lhwloc -lm $METIS_LFLAGS -lopenblas -lstdc++ -fopenmp" \
   # --with-pardisomkl-cflags="$MKL_CFLAGS" \
   # --with-pardisomkl-lflags="$MKL_LFLAGS"
 
