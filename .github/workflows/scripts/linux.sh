@@ -111,7 +111,10 @@ find "$PREFIX" -name 'libquadmath.a' -exec cp {} "$PREFIX/lib/" \;
 GCC_LIB_DIR=$(dirname "$(gfortran -print-libgcc-file-name)")
 ln -sf "$PREFIX/lib/libgfortran.a" "$GCC_LIB_DIR/libgfortran.a"
 ln -sf "$PREFIX/lib/libquadmath.a" "$GCC_LIB_DIR/libquadmath.a"
-echo ">>> Symlink in $GCC_LIB_DIR"
+# Rimuovi le .so di sistema così il linker è forzato a usare le nostre .a
+rm -f "$GCC_LIB_DIR"/libgfortran.so* /usr/lib64/libgfortran.so* /usr/lib/libgfortran.so* 2>/dev/null || true
+rm -f "$GCC_LIB_DIR"/libquadmath.so* /usr/lib64/libquadmath.so* /usr/lib/libquadmath.so* 2>/dev/null || true
+echo ">>> Symlink in $GCC_LIB_DIR (rimossi .so di sistema)"
 
 echo ">>> Verifica PIC libgfortran/libquadmath:"
 for LIB in libquadmath.a libgfortran.a; do
@@ -217,7 +220,6 @@ cmake .. \
   -DCMAKE_C_FLAGS="-O3 -fPIC" \
   -DCMAKE_CXX_FLAGS="-O3 -fPIC -DCPPAD_MAX_NUM_THREADS=1024" \
   -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
-  -DCMAKE_SHARED_LINKER_FLAGS="$LIBGFORTRAN_A $LIBQUADMATH_A" \
   -DSHARED=ON \
   -DBUILD_SHARED_LIBS=ON \
   -DREADLINE=off \
@@ -242,6 +244,17 @@ cmake .. \
 # lto potenzialmente migliora ma analizzare bene build (https://hubicka.blogspot.com/2014/04/linktime-optimization-in-gcc-2-firefox.html)
 
 make -s -j"$CORES" && make -s install
+
+
+echo ">>> Verifica dipendenze:"
+if ldd "$WORK/scipoptsuite/build/lib/libscip.so" | grep -qE 'libgfortran|libquadmath'; then
+  echo "ERRORE: dipendenze Fortran dinamiche ancora presenti!"
+  ldd "$WORK/scipoptsuite/build/lib/libscip.so" | grep -E 'gfortran|quadmath'
+  exit 1
+else
+  echo "OK: libgfortran/libquadmath linkate staticamente"
+fi
+
 
 # ============================================================
 # 4. Compila JSCIPOpt (versione modificata con package it.prometeia.jscip)
