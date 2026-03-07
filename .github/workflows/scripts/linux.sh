@@ -178,7 +178,7 @@ cmake .. \
   -DPAPILO=on \
   -DZLIB=off \
   -DTHREADSAFE=on \
-  -DTPI=tpy
+  -DTPI=tny
 
 make -s -j"$CORES" && make -s install
 
