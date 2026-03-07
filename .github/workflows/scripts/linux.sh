@@ -94,9 +94,10 @@ export LC_ALL=C
   --prefix="$PREFIX" \
   --no-prompt \
   --verbosity=1 \
-  --static \
-  --with-blas-lflags="-L$PREFIX/lib -l:libopenblas.a -lgfortran -lquadmath -lm" \
-  --with-lapack-lflags="-L$PREFIX/lib -l:libopenblas.a -lgfortran -lquadmath -lm"
+  --disable-sipopt \
+  --disable-java \
+  --with-blas-lflags="-L$PREFIX/lib -lopenblas -lgfortran -lm" \
+  --with-lapack-lflags="-L$PREFIX/lib -lopenblas -lgfortran -lm"
 
 ./coinbrew install Ipopt --no-prompt
 
