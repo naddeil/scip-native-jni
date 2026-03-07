@@ -25,6 +25,9 @@ export JAVA_HOME=$(dirname $(dirname $(readlink -f $(which javac))))
 # ============================================================
 if [ "${DEPS_CACHED:-}" != "true" ]; then
 
+# Carica versioni dipendenze
+source "$WORK/.github/workflows/scripts/deps-versions.env"
+
 cd "$WORK"
 mkdir -p staticdepsinstall && cd staticdepsinstall
 
@@ -41,18 +44,19 @@ ln -sf /usr/bin/wget /usr/local/bin/wget 2>/dev/null || true
 #   - MPFR for approximating rationals with floating-point numbers in SCIP
 # -----------------------------------------------------------
 
-curl -LO https://ftp.gnu.org/gnu/gmp/gmp-6.3.0.tar.xz
-tar xf gmp-6.3.0.tar.xz && cd gmp-6.3.0
+curl -LO "https://ftp.gnu.org/gnu/gmp/gmp-${GMP_VERSION}.tar.xz"
+tar xf "gmp-${GMP_VERSION}.tar.xz" && cd "gmp-${GMP_VERSION}"
 CFLAGS="-O3 -fPIC" ./configure --prefix="$PREFIX" --disable-shared --enable-static
   make -s -j"$CORES" && make -s install && cd ..
 
-# curl -LO https://www.mpfr.org/mpfr-current/mpfr-4.2.2.tar.xz
-# tar xf mpfr-4.2.2.tar.xz && cd mpfr-4.2.2
+# curl -LO "https://www.mpfr.org/mpfr-current/mpfr-${MPFR_VERSION}.tar.xz"
+# tar xf "mpfr-${MPFR_VERSION}.tar.xz" && cd "mpfr-${MPFR_VERSION}"
 # CFLAGS="-O3 -fPIC" ./configure --prefix="$PREFIX" --with-gmp="$PREFIX" --disable-shared --enable-static
 # make -s -j"$CORES" && make -s install && cd ..
 
-curl -LO https://archives.boost.io/release/1.85.0/source/boost_1_85_0.tar.bz2
-tar xf boost_1_85_0.tar.bz2 && cd boost_1_85_0
+BOOST_UNDERSCORE=$(echo "$BOOST_VERSION" | tr '.' '_')
+curl -LO "https://archives.boost.io/release/${BOOST_VERSION}/source/boost_${BOOST_UNDERSCORE}.tar.bz2"
+tar xf "boost_${BOOST_UNDERSCORE}.tar.bz2" && cd "boost_${BOOST_UNDERSCORE}"
 ./bootstrap.sh --with-libraries=program_options,serialization,regex,random,iostreams --prefix="$PREFIX"
 ./b2 -j"$CORES" -d0 link=static runtime-link=static cxxflags="-fPIC -O3" install && cd ..
 
@@ -114,8 +118,8 @@ cd "$WORK/staticdepsinstall"
 COMPILE_OB="${COMPILE_OB:-false}"
 if [ "$COMPILE_OB" = "true" ]; then
   echo ">>> OpenBLAS: compilazione da sorgente (DYNAMIC_ARCH=1) …"
-  wget -q https://github.com/OpenMathLib/OpenBLAS/releases/download/v0.3.30/OpenBLAS-0.3.30.zip
-  unzip -q OpenBLAS-0.3.30.zip && mv OpenBLAS-0.3.30 OpenBLAS && cd OpenBLAS
+  wget -q "https://github.com/OpenMathLib/OpenBLAS/releases/download/v${OPENBLAS_VERSION}/OpenBLAS-${OPENBLAS_VERSION}.zip"
+  unzip -q "OpenBLAS-${OPENBLAS_VERSION}.zip" && mv "OpenBLAS-${OPENBLAS_VERSION}" OpenBLAS && cd OpenBLAS
   unset CFLAGS CXXFLAGS LDFLAGS LIBRARY_PATH LD_LIBRARY_PATH CPATH PKG_CONFIG_PATH 2>/dev/null || true
   make -s -j"$CORES" NO_SHARED=1 DYNAMIC_ARCH=1 USE_OPENMP=0 CC=/usr/bin/gcc FC=/usr/bin/gfortran
   make -s PREFIX="$PREFIX" NO_SHARED=1 install
