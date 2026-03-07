@@ -20,10 +20,6 @@ on:
         type: boolean
         description: Build static libraries (instead of shared)
         default: false
-      use_cached_dependencies:
-        type: boolean
-        description: Use cached dependencies
-        default: true
   push:
     tags:
       - 'v*'
@@ -37,20 +33,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Restore dependencies cache
-        if: github.event.inputs.use_cached_dependencies != 'false'
-        id: cache-deps-macos
-        uses: actions/cache@v4
-        with:
-          path: deps_static
-          key: macos-arm64-deps-v2-${{ hashFiles('.github/workflows/scripts/deps-versions.env') }}
-
       - name: Build SCIP + JSCIPOpt (macOS)
         run: bash -x .github/workflows/scripts/macos.sh
         env:
           SCIPOPTSUITE_VERSION: ${{ github.event.inputs.scipoptsuite_version || '9.2.3' }}
           STATIC: ${{ github.event.inputs.static || 'false' }}
-          DEPS_CACHED: ${{ steps.cache-deps-macos.outputs.cache-hit }}
 
       - uses: actions/upload-artifact@v4
         with:
@@ -89,20 +76,11 @@ jobs:
           dnf install -y --allowerasing tar gzip git wget curl which
       - uses: actions/checkout@v4
 
-      - name: Restore dependencies cache
-        if: github.event.inputs.use_cached_dependencies != 'false'
-        id: cache-deps-linux
-        uses: actions/cache@v4
-        with:
-          path: deps_static
-          key: linux-x86_64-deps-v2-${{ hashFiles('.github/workflows/scripts/deps-versions.env') }}
-
       - name: Build SCIP + JSCIPOpt (Linux AL2023)
         run: bash -x .github/workflows/scripts/linux.sh
         env:
           SCIPOPTSUITE_VERSION: ${{ github.event.inputs.scipoptsuite_version || '9.2.3' }}
           STATIC: ${{ github.event.inputs.static || 'false' }}
-          DEPS_CACHED: ${{ steps.cache-deps-linux.outputs.cache-hit }}
 
       - uses: actions/upload-artifact@v4
         with:
