@@ -169,6 +169,12 @@ rm -rf build && mkdir -p build && cd build
 # -DLAPACK=on passato da fuori. IPOPT porta già la propria dipendenza BLAS/LAPACK
 # (via Mumps) quindi SCIP non ha bisogno di linkarla separatamente.
 
+if [ "${STATIC:-false}" = "true" ]; then
+  EXTRA_LINKER_FLAGS="-static-libgfortran -static-libquadmath"
+else
+  EXTRA_LINKER_FLAGS=""
+fi
+
 cmake .. \
   -G "Unix Makefiles" \
   -DCMAKE_BUILD_TYPE=Release \
@@ -178,7 +184,7 @@ cmake .. \
   -DCMAKE_C_FLAGS="-O3 -fPIC" \
   -DCMAKE_CXX_FLAGS="-O3 -fPIC -DCPPAD_MAX_NUM_THREADS=1024" \
   -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
-  -DCMAKE_SHARED_LINKER_FLAGS="-static-libgfortran -static-libquadmath" \ 
+  -DCMAKE_SHARED_LINKER_FLAGS="-static-libgfortran -static-libquadmath" \
   -DSHARED=$SHARED_FLAG \
   -DBUILD_SHARED_LIBS=$BUILD_SHARED \
   -DREADLINE=off \
