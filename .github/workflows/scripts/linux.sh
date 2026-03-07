@@ -222,6 +222,7 @@ cmake .. \
   -DBUILD_SHARED_LIBS=ON \
   -DREADLINE=off \
   -DGMP=on \
+  -DSTATIC_GMP=on \
   -DGMP_DIR="$PREFIX" \
   -DZIMPL=off \
   -DLPS=spx \
@@ -265,7 +266,7 @@ cp -L "$WORK/JSCIPOpt/build/Release/libjscip.so" "$OUT/"
 cp -L "$WORK/scipoptsuite/build/lib/libscip.so" "$OUT/libscip.so.${SCIP_MAJOR_MINOR}"
 
 # GMP resta shared (assembly ottimizzato richiede PIC nativo)
-cp -L "$PREFIX/lib/libgmp.so" "$OUT/libgmp.so.10"
+# cp -L "$PREFIX/lib/libgmp.so" "$OUT/libgmp.so.10"
 
 
 # Fix rpath — $ORIGIN permette di caricare le dipendenze dalla stessa cartella
