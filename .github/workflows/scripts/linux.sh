@@ -125,8 +125,7 @@ export LC_ALL=C
   --prefix="$PREFIX" \
   --no-prompt \
   --verbosity=1 \
-  --enable-shared=no \
-  --enable-static=yes \
+  --static \
   --with-lapack-lflags="-L$PREFIX/lib -lopenblas"
   # --with-metis-cflags="$METIS_CFLAGS" \
   # --with-metis-lflags="$METIS_LFLAGS" \
