@@ -67,7 +67,7 @@ wget -q https://github.com/OpenMathLib/OpenBLAS/releases/download/v0.3.30/OpenBL
 unzip -q OpenBLAS-0.3.30.zip && mv OpenBLAS-0.3.30 OpenBLAS && cd OpenBLAS
 unset CFLAGS CXXFLAGS LDFLAGS LIBRARY_PATH LD_LIBRARY_PATH CPATH PKG_CONFIG_PATH 2>/dev/null || true
 make -s -j"$CORES" NO_SHARED=1 DYNAMIC_ARCH=1 USE_OPENMP=0 CC=/usr/bin/gcc FC=/usr/bin/gfortran
-make -s PREFIX="$PREFIX" install
+make -s PREFIX="$PREFIX" NO_SHARED=1 install
 cd ..
 
 # -----------------------------------------------------------
@@ -173,12 +173,12 @@ cmake .. \
   -DFILTERSQP=off \
   -DWORHP=off \
   -DBOOST_ROOT="$PREFIX" \
-  -DLTO=on \
   -DPAPILO=on \
   -DZLIB=off \
   -DTHREADSAFE=on \
+  -DLTO=off \
   -DTPI=tny
-
+# lto potenzialmente migliora ma analizzare bene build (https://hubicka.blogspot.com/2014/04/linktime-optimization-in-gcc-2-firefox.html)
 make -s -j"$CORES" && make -s install
 
 # ============================================================
