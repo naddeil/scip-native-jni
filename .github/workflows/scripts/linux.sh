@@ -47,10 +47,10 @@ tar xf gmp-6.3.0.tar.xz && cd gmp-6.3.0
 CFLAGS="-O3 -fPIC" ./configure --prefix="$PREFIX" --disable-shared --enable-static
   make -s -j"$CORES" && make -s install && cd ..
 
-curl -LO https://www.mpfr.org/mpfr-current/mpfr-4.2.2.tar.xz
-tar xf mpfr-4.2.2.tar.xz && cd mpfr-4.2.2
-CFLAGS="-O3 -fPIC" ./configure --prefix="$PREFIX" --with-gmp="$PREFIX" --disable-shared --enable-static
-make -s -j"$CORES" && make -s install && cd ..
+# curl -LO https://www.mpfr.org/mpfr-current/mpfr-4.2.2.tar.xz
+# tar xf mpfr-4.2.2.tar.xz && cd mpfr-4.2.2
+# CFLAGS="-O3 -fPIC" ./configure --prefix="$PREFIX" --with-gmp="$PREFIX" --disable-shared --enable-static
+# make -s -j"$CORES" && make -s install && cd ..
 
 curl -LO https://archives.boost.io/release/1.85.0/source/boost_1_85_0.tar.bz2
 tar xf boost_1_85_0.tar.bz2 && cd boost_1_85_0
@@ -83,37 +83,13 @@ else
     find /usr/lib64 /usr/lib -name "libopenblas*" -exec cp {} "$PREFIX/lib/" \; 2>/dev/null || true
   fi
 fi
-# -----------------------------------------------------------
-# METIS 5.1.1 — ordinamento matrice sparsa
-# Migliora MUMPS sui problemi con matrici sparse
-# -----------------------------------------------------------
-# cd "$WORK/staticdepsinstall"
-
-# wget -q https://github.com/KarypisLab/GKlib/archive/refs/tags/METIS-v5.1.1-DistDGL-0.5.tar.gz
-# tar -xf METIS-v5.1.1-DistDGL-0.5.tar.gz
-# GKLIB_SRC="$WORK/staticdepsinstall/GKlib-METIS-v5.1.1-DistDGL-0.5"
-# cd GKlib-METIS-v5.1.1-DistDGL-0.5
-# sed -i 's/^CONFIG_FLAGS =/CONFIG_FLAGS = -DCMAKE_POLICY_VERSION_MINIMUM=3.5/' Makefile
-# make config prefix="$GKLIB_SRC"
-# make -j"$CORES" && make install
-# cd ..
-
-# wget -q https://github.com/KarypisLab/METIS/archive/refs/tags/v5.1.1-DistDGL-v0.5.tar.gz
-# tar -xf v5.1.1-DistDGL-v0.5.tar.gz
-# cd METIS-5.1.1-DistDGL-v0.5
-# sed -i 's/^CONFIG_FLAGS =/CONFIG_FLAGS = -DCMAKE_POLICY_VERSION_MINIMUM=3.5/' Makefile
-# make config prefix="$PREFIX" gklib_path="$GKLIB_SRC"
-# make -j"$CORES" && make install
-# cd ..
-
-# METIS_CFLAGS="-I$PREFIX/include"
-# METIS_LFLAGS="-L$PREFIX/lib -lmetis -lm"
 
 # -----------------------------------------------------------
 # IPOPT via coinbrew
 #   - coinbrew fetch: scarica Ipopt + ThirdParty-Mumps + ThirdParty-ASL in automatico
 #   - coinbrew build: compila tutto in sequenza, propaga --with-metis-* anche a
 #   - ThirdParty-Mumps (non serve buildare MUMPS separatamente — evita conflitti dir)
+#   - mesti
 # Solver inclusi nella build: MUMPS no SPRAL, MKL Pardiso ecc. abbiamo problemi piccoli, sono superfluli. 
 # L'unico forse utile sarebbe MA27 (ma non potremmo usarlo in teoria, è pubblico ma non permesso per utilizzo commerciale)
 # - sIpopt: build in single-precision lo disabilitiamo
@@ -137,8 +113,6 @@ export LC_ALL=C
   --static \
   --with-blas-lflags="-L$PREFIX/lib -l:libopenblas.a -l:libgfortran.a -l:libquadmath.a -lm" \
   --with-lapack-lflags="-L$PREFIX/lib -l:libopenblas.a -l:libgfortran.a -l:libquadmath.a -lm"
-  # --with-metis-cflags="$METIS_CFLAGS" \
-  # --with-metis-lflags="$METIS_LFLAGS" \
 
 # ./coinbrew test Ipopt --no-prompt || true
 
@@ -164,7 +138,6 @@ rm -rf build && mkdir -p build && cd build
 # (via Mumps) quindi SCIP non ha bisogno di linkarla separatamente.
 
 EXTRA_LINKER_FLAGS="-static-libgfortran -static-libquadmath"
-GMP_LINK="-L${PREFIX}/lib -lgmp"
 # if [ "${STATIC:-false}" = "true" ]; then
 #   EXTRA_LINKER_FLAGS="-static-libgfortran -static-libquadmath"
 # else
@@ -180,12 +153,12 @@ cmake .. \
   -DCMAKE_C_FLAGS="-O3 -fPIC" \
   -DCMAKE_CXX_FLAGS="-O3 -fPIC -DCPPAD_MAX_NUM_THREADS=1024" \
   -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
-  -DCMAKE_SHARED_LINKER_FLAGS="${EXTRA_LINKER_FLAGS} ${GMP_LINK}" \
-  -DCMAKE_EXE_LINKER_FLAGS="${GMP_LINK}" \
+  -DCMAKE_SHARED_LINKER_FLAGS="-static-libgfortran -static-libquadmath" \
   -DSHARED=ON \
   -DBUILD_SHARED_LIBS=ON \
   -DREADLINE=off \
   -DGMP=on \
+  -DSTATIC_GMP=on \
   -DGMP_DIR="$PREFIX" \
   -DZIMPL=off \
   -DLPS=spx \
@@ -201,6 +174,7 @@ cmake .. \
   -DTHREADSAFE=on \
   -DLTO=off \
   -DTPI=tny
+  # -DMPFR_LIBRARIES="$PREFIX/lib/libmpfr.a;$PREFIX/lib/libgmp.a" \
 # lto potenzialmente migliora ma analizzare bene build (https://hubicka.blogspot.com/2014/04/linktime-optimization-in-gcc-2-firefox.html)
 
 make -s -j"$CORES" && make -s install
