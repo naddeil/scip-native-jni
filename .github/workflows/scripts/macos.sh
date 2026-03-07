@@ -131,43 +131,6 @@ for f in "$OUT"/*.dylib; do
   install_name_tool -id "@loader_path/$(basename "$f")" "$f" 2>/dev/null || true
 done
 
-# ============================================================
-# 6. Checker
-# ============================================================
-echo "=== Verifica dipendenze ==="
-otool -L "$OUT/libjscip.dylib"
-otool -L "$OUT/$SCIP_DYLIB"
-
-export DYLD_LIBRARY_PATH="$OUT"
-python3 -c "
-import ctypes, sys
-for lib in ['$OUT/libjscip.dylib', '$OUT/$SCIP_DYLIB']:
-    print(f'Carico {lib}...')
-    try:
-        ctypes.CDLL(lib)
-        print('✅ OK')
-    except OSError as e:
-        print(f'❌ {e}')
-        sys.exit(1)
-"
-
 cd "$WORK"
 zip -r out.zip out/
 echo "Build macOS completata."
-
-# ============================================================
-# 7. Test Java (runTest.sh)
-# ============================================================
-mvn install:install-file \
-  -Dfile="$OUT/scip.jar" \
-  -DgroupId=com.test -DartifactId=scip -Dversion=0.0.1 -Dpackaging=jar
-
-cd "$WORK"
-unzip -q resources/ipeoptimtest.zip
-cd ipeoptimtest
-mvn clean compile
-MAVEN_OPTS="-Djava.library.path=$OUT" \
-  mvn exec:java -Dexec.mainClass="com.prometeia.test.TestIntegrazioneCoptimQuadratico"
-cd "$WORK"
-rm -rf ipeoptimtest
-echo "Test Java completato."

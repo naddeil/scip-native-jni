@@ -275,33 +275,9 @@ for f in *.so*; do
   patchelf --set-rpath '$ORIGIN' "$f" 2>/dev/null || true
 done
 
-# ============================================================
-# 6. Checker — verifica rpath rinominando le cartelle sorgente
-# ============================================================
-echo "=== Verifica rpath ==="
-cd "$WORK"
-mv out outt
-mv deps_static deps_staticc
-
-python3 -c "
-import ctypes, sys
-for lib in ['outt/libscip.so.${SCIP_MAJOR_MINOR}', 'outt/libjscip.so']:
-    print(f'Carico {lib}...')
-    try:
-        ctypes.CDLL(lib)
-        print('OK')
-    except OSError as e:
-        print(f'ERRORE: {e}')
-        sys.exit(1)
-"
-
-mv deps_staticc deps_static
-mv outt out
-
 cd "$WORK"
 zip -r out.zip out/
 
-# Crea test_package.zip
 mkdir -p test_package
 cp -r out test_package/
 cp resources/ipeoptimtest.zip test_package/
@@ -309,20 +285,3 @@ zip -r test_package.zip test_package/
 rm -rf test_package
 
 echo "Build Linux completata."
-
-# ============================================================
-# 7. Test Java (runTest.sh)
-# ============================================================
-mvn install:install-file \
-  -Dfile="$OUT/scip.jar" \
-  -DgroupId=com.test -DartifactId=scip -Dversion=0.0.1 -Dpackaging=jar
-
-cd "$WORK"
-unzip -q resources/ipeoptimtest.zip
-cd ipeoptimtest
-mvn clean compile
-MAVEN_OPTS="-Djava.library.path=$OUT" \
-  mvn exec:java -Dexec.mainClass="com.prometeia.test.TestIntegrazioneCoptimQuadratico"
-cd "$WORK"
-rm -rf ipeoptimtest
-echo "Test Java completato."

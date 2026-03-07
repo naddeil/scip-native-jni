@@ -57,6 +57,25 @@ jobs:
           name: macos-arm64
           path: ${{ github.workspace }}/out.zip
 
+  macos-test:
+    needs: macos-build
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: macos-arm64
+          path: .
+
+      - name: Extract artifact
+        run: unzip -o out.zip
+
+      - name: Test (macOS)
+        run: bash -x .github/workflows/scripts/macos-test.sh
+        env:
+          SCIPOPTSUITE_VERSION: ${{ github.event.inputs.scipoptsuite_version || '9.2.3' }}
+
   linux-build:
     runs-on: ubuntu-latest
     if: >-
@@ -92,11 +111,34 @@ jobs:
             ${{ github.workspace }}/out.zip
             ${{ github.workspace }}/test_package.zip
 
+  linux-test:
+    needs: linux-build
+    runs-on: ubuntu-latest
+    container:
+      image: amazonlinux:2023
+    steps:
+      - name: Install base tools
+        run: dnf install -y --allowerasing tar gzip git
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: linux-x86_64
+          path: .
+
+      - name: Extract artifact
+        run: unzip -o out.zip
+
+      - name: Test (Linux AL2023)
+        run: bash -x .github/workflows/scripts/linux-test.sh
+        env:
+          SCIPOPTSUITE_VERSION: ${{ github.event.inputs.scipoptsuite_version || '9.2.3' }}
+
   merge-artifacts:
-    needs: [macos-build, linux-build]
+    needs: [macos-test, linux-test]
     if: >-
       always() &&
-      (needs.macos-build.result == 'success' || needs.linux-build.result == 'success')
+      (needs.macos-test.result == 'success' || needs.linux-test.result == 'success')
     runs-on: ubuntu-latest
     steps:
       - name: Merge Artifacts
