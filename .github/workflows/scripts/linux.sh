@@ -233,6 +233,7 @@ cmake .. \
   -DLPS=spx \
   -DSOPLEX_DIR="../soplex" \
   -DIPOPT=on \
+  -DTBB=off \
   -DIPOPT_DIR="$PREFIX" \
   -DFILTERSQP=off \
   -DWORHP=off \
