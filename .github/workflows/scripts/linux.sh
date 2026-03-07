@@ -132,10 +132,6 @@ else
     || cp -a /usr/include/lapacke*.h /usr/include/cblas*.h /usr/include/f77blas.h \
              /usr/include/openblas_config.h "$PREFIX/include/" 2>/dev/null || true
   find /usr/lib64 /usr/lib -name "libopenblas*.a" -exec cp {} "$PREFIX/lib/" \; 2>/dev/null || true
-  # Fallback: se non c'è .a copiamo .so
-  if ! ls "$PREFIX/lib"/libopenblas*.a &>/dev/null; then
-    find /usr/lib64 /usr/lib -name "libopenblas*" -exec cp {} "$PREFIX/lib/" \; 2>/dev/null || true
-  fi
 fi
 
 # -----------------------------------------------------------
@@ -153,27 +149,33 @@ cd "$WORK/staticdepsinstall"
 wget -q https://raw.githubusercontent.com/coin-or/coinbrew/master/coinbrew
 chmod u+x coinbrew
 
-export CFLAGS="-O3 -fPIC"
-export CXXFLAGS="-O3 -fPIC"
-export FFLAGS="-O3 -fPIC"
+# Rimuoviamo export globali che rompono i test di configurazione di ASL
+unset CFLAGS CXXFLAGS FFLAGS LDFLAGS
 export LC_ALL=C
 
 ./coinbrew fetch Ipopt --no-prompt
 
+# Scarichiamo esplicitamente i sorgenti ASL e Mumps
+(cd ThirdParty/Mumps && ./get.Mumps)
+
+# Passiamo i flag come ADDITIONAL_ per non inquinare il 'configure'
 ./coinbrew build Ipopt \
   --prefix="$PREFIX" \
   --no-prompt \
   --verbosity=1 \
   --static \
+  --disable-shared \
+  ADDITIONAL_CFLAGS="-O3 -fPIC" \
+  ADDITIONAL_CXXFLAGS="-O3 -fPIC" \
+  ADDITIONAL_FFLAGS="-O3 -fPIC" \
   --with-blas-lflags="-L$PREFIX/lib -l:libopenblas.a -l:libgfortran.a -l:libquadmath.a -lm" \
   --with-lapack-lflags="-L$PREFIX/lib -l:libopenblas.a -l:libgfortran.a -l:libquadmath.a -lm"
-
-# ./coinbrew test Ipopt --no-prompt || true
 
 ./coinbrew install Ipopt --no-prompt
 
 echo "Dipendenze compilate."
 fi
+
 # ============================================================
 # 3. Download e compila SCIP
 # ============================================================
