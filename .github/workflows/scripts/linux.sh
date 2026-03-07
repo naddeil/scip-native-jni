@@ -8,12 +8,6 @@ OUT="$WORK/out"
 CORES=$(nproc)
 SCIP_MAJOR_MINOR=$(echo "$SCIPOPTSUITE_VERSION" | cut -d. -f1-2)
 
-if [ "${STATIC:-false}" = "true" ]; then
-  SHARED_FLAG=OFF; BUILD_SHARED=OFF
-else
-  SHARED_FLAG=ON; BUILD_SHARED=ON
-fi
-
 mkdir -p "$PREFIX" "$PREFIX/include" "$PREFIX/lib" "$OUT"
 
 # ============================================================
@@ -142,7 +136,7 @@ export LC_ALL=C
   --verbosity=1 \
   --static \
   --with-blas-lflags="-L$PREFIX/lib -l:libopenblas.a -l:libgfortran.a -l:libquadmath.a -lm" \
-  --with-lapack-lflags="-L$PREFIX/lib -l:libopenblas.a -l:libgfortran.a -l:libquadmath.a -lm" \
+  --with-lapack-lflags="-L$PREFIX/lib -l:libopenblas.a -l:libgfortran.a -l:libquadmath.a -lm"
   # --with-metis-cflags="$METIS_CFLAGS" \
   # --with-metis-lflags="$METIS_LFLAGS" \
 
@@ -169,11 +163,12 @@ rm -rf build && mkdir -p build && cd build
 # -DLAPACK=on passato da fuori. IPOPT porta già la propria dipendenza BLAS/LAPACK
 # (via Mumps) quindi SCIP non ha bisogno di linkarla separatamente.
 
-if [ "${STATIC:-false}" = "true" ]; then
-  EXTRA_LINKER_FLAGS="-static-libgfortran -static-libquadmath"
-else
-  EXTRA_LINKER_FLAGS=""
-fi
+EXTRA_LINKER_FLAGS="-static-libgfortran -static-libquadmath"
+# if [ "${STATIC:-false}" = "true" ]; then
+#   EXTRA_LINKER_FLAGS="-static-libgfortran -static-libquadmath"
+# else
+#   EXTRA_LINKER_FLAGS=""
+# fi
 
 cmake .. \
   -G "Unix Makefiles" \
@@ -184,9 +179,9 @@ cmake .. \
   -DCMAKE_C_FLAGS="-O3 -fPIC" \
   -DCMAKE_CXX_FLAGS="-O3 -fPIC -DCPPAD_MAX_NUM_THREADS=1024" \
   -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
-  -DCMAKE_SHARED_LINKER_FLAGS="-static-libgfortran -static-libquadmath" \
-  -DSHARED=$SHARED_FLAG \
-  -DBUILD_SHARED_LIBS=$BUILD_SHARED \
+  -DCMAKE_SHARED_LINKER_FLAGS="${EXTRA_LINKER_FLAGS}" \
+  -DSHARED=ON \
+  -DBUILD_SHARED_LIBS=ON \
   -DREADLINE=off \
   -DGMP=on \
   -DGMP_DIR="$PREFIX" \
