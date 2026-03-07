@@ -43,6 +43,9 @@ ln -sf /usr/bin/wget /usr/local/bin/wget 2>/dev/null || true
 
 # -----------------------------------------------------------
 # GMP, MPFR, Boost
+#   - GMP for rational arithmetic in ZIMPL, SoPlex, SCIP, and PaPILO,
+#   - Boost multiprecision library for rationals in SCIP (and PaPILO, if linked),
+#   - MPFR for approximating rationals with floating-point numbers in SCIP
 # -----------------------------------------------------------
 
 curl -LO https://ftp.gnu.org/gnu/gmp/gmp-6.3.0.tar.xz
@@ -62,6 +65,7 @@ tar xf boost_1_85_0.tar.bz2 && cd boost_1_85_0
 
 # -----------------------------------------------------------
 # OpenBLAS — BLAS + LAPACK + LAPACKE ottimizzati
+# Buildiamo noi e non scarichiamo già fatti poichè ci serve DYNAMIC_ARCH=1 per supportare tutte le cpu
 # -----------------------------------------------------------
 wget -q https://github.com/OpenMathLib/OpenBLAS/releases/download/v0.3.30/OpenBLAS-0.3.30.zip
 unzip -q OpenBLAS-0.3.30.zip && mv OpenBLAS-0.3.30 OpenBLAS && cd OpenBLAS
@@ -98,11 +102,12 @@ cd ..
 
 # -----------------------------------------------------------
 # IPOPT via coinbrew
-# coinbrew fetch: scarica Ipopt + ThirdParty-Mumps + ThirdParty-ASL in automatico
-# coinbrew build: compila tutto in sequenza, propaga --with-metis-* anche a
-#   ThirdParty-Mumps (non serve buildare MUMPS separatamente — evita conflitti dir)
-# Solver inclusi nella build: MUMPS (no SPRAL, MKL Pardiso ecc.)
-# sIpopt is build in single-precision disabilitiamo
+#   - coinbrew fetch: scarica Ipopt + ThirdParty-Mumps + ThirdParty-ASL in automatico
+#   - coinbrew build: compila tutto in sequenza, propaga --with-metis-* anche a
+#   - ThirdParty-Mumps (non serve buildare MUMPS separatamente — evita conflitti dir)
+# Solver inclusi nella build: MUMPS no SPRAL, MKL Pardiso ecc. abbiamo problemi piccoli, sono superfluli. 
+# L'unico forse utile sarebbe MA27 (ma non potremmo usarlo in teoria, è pubblico ma non permesso per utilizzo commerciale)
+# - sIpopt: build in single-precision lo disabilitiamo
 # -----------------------------------------------------------
 cd "$WORK/staticdepsinstall"
 
@@ -112,6 +117,7 @@ chmod u+x coinbrew
 export CFLAGS="-O3 -fPIC"
 export CXXFLAGS="-O3 -fPIC"
 export FFLAGS="-O3 -fPIC"
+export LC_ALL=C
 
 ./coinbrew fetch Ipopt --no-prompt
 
@@ -119,15 +125,13 @@ export FFLAGS="-O3 -fPIC"
   --prefix="$PREFIX" \
   --no-prompt \
   --verbosity=1 \
-  --enable-shared=no \   
-  --enable-static=yes \        
+  --enable-shared=no \
+  --enable-static=yes \
   --with-lapack-lflags="-L$PREFIX/lib -lopenblas"
   # --with-metis-cflags="$METIS_CFLAGS" \
   # --with-metis-lflags="$METIS_LFLAGS" \
 
-if [ "${TESTS:-OFF}" = "ON" ]; then
-  ./coinbrew test Ipopt --no-prompt || true
-fi
+# ./coinbrew test Ipopt --no-prompt || true
 
 ./coinbrew install Ipopt --no-prompt
 
@@ -148,7 +152,8 @@ rm -rf build && mkdir -p build && cd build
 #   if(IPOPT_FOUND) → set(LAPACK off)
 # Quando IPOPT è trovato, SCIP forza internamente LAPACK=off, ignorando qualsiasi
 # -DLAPACK=on passato da fuori. IPOPT porta già la propria dipendenza BLAS/LAPACK
-# (via Mumps) nel suo .pc file — SCIP non ha bisogno di linkarla separatamente.
+# (via Mumps) quindi SCIP non ha bisogno di linkarla separatamente.
+
 cmake .. \
   -G "Unix Makefiles" \
   -DCMAKE_BUILD_TYPE=Release \
@@ -179,6 +184,7 @@ cmake .. \
   -DLTO=off \
   -DTPI=tny
 # lto potenzialmente migliora ma analizzare bene build (https://hubicka.blogspot.com/2014/04/linktime-optimization-in-gcc-2-firefox.html)
+
 make -s -j"$CORES" && make -s install
 
 # ============================================================
