@@ -23,6 +23,7 @@ dnf install -y --allowerasing \
   gcc gcc-c++ gcc-gfortran make cmake wget curl git unzip zip which \
   tar xz bzip2 patch diffutils pkgconfig m4 perl \
   java-11-amazon-corretto-devel maven.noarch patchelf swig python3 \
+  java-11-amazon-corretto-headful \
   hwloc-devel hwloc
 export JAVA_HOME=$(dirname $(dirname $(readlink -f $(which javac))))
 
@@ -40,31 +41,10 @@ export PATH="/usr/local/bin:/usr/bin:/bin:/usr/local/sbin:/usr/sbin:/sbin:$PATH"
 ln -sf /usr/bin/curl /usr/local/bin/curl 2>/dev/null || true
 ln -sf /usr/bin/wget /usr/local/bin/wget 2>/dev/null || true
 
-# -----------------------------------------------------------
-# Intel oneAPI MKL — Pardiso (free, uso commerciale OK, solo x86-64)
-# Installato prima così MKLROOT è disponibile per il configure di Ipopt
-# -----------------------------------------------------------
-# cat > /etc/yum.repos.d/oneAPI.repo <<'EOF'
-# [oneAPI]
-# name=Intel® oneAPI repository
-# baseurl=https://yum.repos.intel.com/oneapi
-# enabled=1
-# gpgcheck=1
-# repo_gpgcheck=1
-# gpgkey=https://yum.repos.intel.com/intel-gpg-keys/GPG-PUB-KEY-INTEL-SW-PRODUCTS.PUB
-# EOF
-# dnf install -y intel-oneapi-mkl-devel procps-ng
-# source /opt/intel/oneapi/setvars.sh --force
-# MKL_CFLAGS="-I${MKLROOT}/include"
-# MKL_LFLAGS="-L${MKLROOT}/lib/intel64 -lmkl_rt -lpthread -lm -ldl"
 
 # -----------------------------------------------------------
-# zlib, GMP, MPFR, Boost (invariati)
+# GMP, MPFR, Boost
 # -----------------------------------------------------------
-curl -LO https://github.com/madler/zlib/releases/download/v1.3.1/zlib-1.3.1.tar.xz
-tar xf zlib-1.3.1.tar.xz && cd zlib-1.3.1
-CFLAGS="-O3 -fPIC" ./configure --static --prefix="$PREFIX"
-make -s -j"$CORES" && make -s install && cd ..
 
 curl -LO https://ftp.gnu.org/gnu/gmp/gmp-6.3.0.tar.xz
 tar xf gmp-6.3.0.tar.xz && cd gmp-6.3.0
@@ -95,7 +75,7 @@ cd ..
 
 # -----------------------------------------------------------
 # METIS 5.1.1 — ordinamento matrice sparsa
-# Migliora MUMPS e SPRAL sui problemi di portfolio (matrici sparse grandi)
+# Migliora MUMPS sui problemi con matrici sparse
 # -----------------------------------------------------------
 # cd "$WORK/staticdepsinstall"
 
@@ -120,41 +100,12 @@ cd ..
 # METIS_LFLAGS="-L$PREFIX/lib -lmetis -lm"
 
 # -----------------------------------------------------------
-# SPRAL (BSD — free anche commerciale)
-# Versioni >= 2023.03.29 usano CMake (non autotools)
-# Dipende da: METIS, OpenBLAS, hwloc, gfortran/OpenMP
-# -----------------------------------------------------------
-# cd "$WORK/staticdepsinstall"
-
-# git clone --depth=1 https://github.com/ralna/spral.git
-# cd spral
-# mkdir -p build && cd build
-
-# cmake .. \
-#   -DCMAKE_INSTALL_PREFIX="$PREFIX" \
-#   -DCMAKE_BUILD_TYPE=Release \
-#   -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
-#   -DCMAKE_C_FLAGS="-O3 -fPIC" \
-#   -DCMAKE_CXX_FLAGS="-O3 -fPIC" \
-#   -DCMAKE_Fortran_FLAGS="-O3 -fPIC" \
-#   -DBUILD_SHARED_LIBS=ON \
-#   -DBLAS_LIBRARIES="$PREFIX/lib/libopenblas.so" \
-#   -DLAPACK_LIBRARIES="$PREFIX/lib/libopenblas.so"
-#   -DMETIS_DIR="$PREFIX" \
-
-# make -j"$CORES" && make install
-
-# # Legge il soname reale prodotto dalla build per gestire la copia in output
-# SPRAL_SONAME=$(objdump -p "$PREFIX/lib/libspral.so" 2>/dev/null | awk '/SONAME/{print $2}' || echo "")
-# echo "SPRAL soname rilevato: ${SPRAL_SONAME:-nessuno}"
-# cd ../..
-
-# -----------------------------------------------------------
 # IPOPT via coinbrew
 # coinbrew fetch: scarica Ipopt + ThirdParty-Mumps + ThirdParty-ASL in automatico
 # coinbrew build: compila tutto in sequenza, propaga --with-metis-* anche a
 #   ThirdParty-Mumps (non serve buildare MUMPS separatamente — evita conflitti dir)
-# Solver inclusi nella build: MUMPS + SPRAL + MKL Pardiso
+# Solver inclusi nella build: MUMPS (no SPRAL, MKL Pardiso ecc.)
+# sIpopt is build in single-precision disabilitiamo
 # -----------------------------------------------------------
 cd "$WORK/staticdepsinstall"
 
@@ -177,10 +128,6 @@ export FFLAGS="-O3 -fPIC"
   --with-lapack-lflags="-L$PREFIX/lib -lopenblas"
   # --with-metis-cflags="$METIS_CFLAGS" \
   # --with-metis-lflags="$METIS_LFLAGS" \
-  # --with-spral-cflags="-I$PREFIX/include" \
-  # --with-spral-lflags="-L$PREFIX/lib -lspral -lgfortran -lhwloc -lm $METIS_LFLAGS -lopenblas -lstdc++ -fopenmp" \
-  # --with-pardisomkl-cflags="$MKL_CFLAGS" \
-  # --with-pardisomkl-lflags="$MKL_LFLAGS"
 
 if [ "${TESTS:-OFF}" = "ON" ]; then
   ./coinbrew test Ipopt --no-prompt || true
@@ -189,15 +136,6 @@ fi
 ./coinbrew install Ipopt --no-prompt
 
 echo "Dipendenze compilate."
-else
-  echo "Dipendenze cachate, skip compilazione."
-  source /opt/intel/oneapi/setvars.sh --force 2>/dev/null || true
-  SPRAL_SONAME=$(objdump -p "$PREFIX/lib/libspral.so" 2>/dev/null | awk '/SONAME/{print $2}' || echo "")
-fi
-
-# SPRAL richiede queste variabili OpenMP per funzionare correttamente a runtime
-export OMP_CANCELLATION=TRUE
-export OMP_PROC_BIND=TRUE
 
 # ============================================================
 # 3. Download e compila SCIP
@@ -222,7 +160,7 @@ cmake .. \
   -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
   -DCMAKE_PREFIX_PATH="$PREFIX" \
   -DCMAKE_C_FLAGS="-O3 -fPIC" \
-  -DCMAKE_CXX_FLAGS="-O3 -fPIC" \
+  -DCMAKE_CXX_FLAGS="-O3 -fPIC -DCPPAD_MAX_NUM_THREADS=1024" \
   -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
   -DSHARED=$SHARED_FLAG \
   -DBUILD_SHARED_LIBS=$BUILD_SHARED \
@@ -240,6 +178,8 @@ cmake .. \
   -DBOOST_ROOT="$PREFIX" \
   -DLTO=on \
   -DPAPILO=on \
+  -DZLIB=off \
+  -DTHREADSAFE=on \
   -DTPI=none
 
 make -s -j"$CORES" && make -s install
@@ -266,33 +206,15 @@ cp -L "$WORK/JSCIPOpt/build/Release/libjscip.so" "$OUT/"
 cp -L "$WORK/scipoptsuite/build/lib/libscip.so" "$OUT/libscip.so.${SCIP_MAJOR_MINOR}"
 
 # Dipendenze runtime dal prefix custom
-# BUG FIX: rimosso liblapacke.so (non è una dipendenza runtime di SCIP/IPOPT);
 # libopenblas.so copre sia BLAS che LAPACK per tutti i consumer.
 for lib in libmpfr.so libopenblas.so libgmp.so libipopt.so; do
   [ -f "$PREFIX/lib/$lib" ] && cp -L "$PREFIX/lib/$lib" "$OUT/" || true
 done
 cp -L "$PREFIX/lib/libcoinmumps.so" "$OUT/" 2>/dev/null || true
 
-# SPRAL — copia usando il soname reale rilevato a build time
-if [ -n "${SPRAL_SONAME:-}" ] && [ -f "$PREFIX/lib/$SPRAL_SONAME" ]; then
-  # La lib versioned esiste: copiala e crea symlink .so → soname per dlopen da Ipopt
-  cp -L "$PREFIX/lib/$SPRAL_SONAME" "$OUT/"
-  ln -sf "$SPRAL_SONAME" "$OUT/libspral.so"
-else
-  # Nessun soname versioned (build non convenzionale): copia libspral.so direttamente
-  cp -L "$PREFIX/lib/libspral.so" "$OUT/" 2>/dev/null || true
-fi
 
-# MKL Pardiso — cp -L dereferenzia il symlink .so → file reale versioned
-# libmkl_rt.so è il dispatcher MKL che include Pardiso e carica le dipendenze a runtime
-# MKL_LIB_DIR="${MKLROOT}/lib/intel64"
-# for mkllib in libmkl_rt.so libmkl_intel_lp64.so libmkl_gnu_thread.so libmkl_core.so; do
-#   [ -f "$MKL_LIB_DIR/$mkllib" ] && cp -L "$MKL_LIB_DIR/$mkllib" "$OUT/" || true
-# done
-
-# Librerie di sistema (aggiunto libgomp e libhwloc richiesti da SPRAL a runtime)
-for syslib in libgcc_s.so.1 libgfortran.so.5 libstdc++.so.6 libquadmath.so.0 \
-              libc.so.6 libm.so.6 libgomp.so.1 libhwloc.so.15; do
+# Librerie di sistema
+for syslib in libgcc_s.so.1 libgfortran.so.5 libstdc++.so.6 libquadmath.so.0 libc.so.6 libm.so.6; do
   FOUND=$(find /usr/lib64 /lib64 /usr/lib -name "$syslib" 2>/dev/null | head -1) || true
   [ -n "${FOUND:-}" ] && cp -L "$FOUND" "$OUT/" || true
 done
