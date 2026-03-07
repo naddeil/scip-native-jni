@@ -12,7 +12,7 @@ jobs:
     steps:
       - name: Install toolchain
         run: |
-          dnf install -y gcc gcc-c++ binutils binutils-gold
+          dnf install -y gcc gcc-c++ binutils
 
       - name: GCC and linker versions
         run: |
@@ -32,14 +32,12 @@ jobs:
 
       - name: Check linker plugin support (gold)
         run: |
-          echo "=== ld.gold --help | grep plugin ==="
-          if ld.gold --help 2>&1 | grep -q '\-plugin'; then
-            echo "OK: gold supporta --plugin"
-            ld.gold --help 2>&1 | grep plugin
+          if command -v ld.gold &>/dev/null; then
+            echo "=== ld.gold disponibile ==="
+            ld.gold --help 2>&1 | grep plugin || echo "gold presente ma senza supporto plugin"
           else
-            echo "WARN: gold NON mostra supporto plugin"
+            echo "SKIP: gold non disponibile su AL2023 — usa GNU ld (ok)"
           fi
-
       - name: Locate LTO plugin .so
         run: |
           echo "=== Ricerca liblto_plugin.so ==="
