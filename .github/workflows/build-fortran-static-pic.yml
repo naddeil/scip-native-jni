@@ -125,18 +125,20 @@ jobs:
           LQM=$(find ${PREFIX} -name 'libquadmath.a' -print -quit)
           echo "path: ${LQM}"
           ls -lh "${LQM}"
-          ABS=$(objdump -r "${LQM}" 2>/dev/null | grep -cE 'R_X86_64_32$' || echo "0")
+          ABS=$(objdump -r "${LQM}" 2>/dev/null | grep -cE 'R_X86_64_32$' || true)
+          ABS=${ABS:-0}
           echo "R_X86_64_32 relocations: ${ABS}"
-          [ "${ABS}" -eq 0 ] && echo "✓ PIC OK" || echo "⚠ possibile non-PIC"
+          [ "${ABS}" -eq 0 ] && echo "✓ PIC OK" || echo "⚠ possibile non-PIC (${ABS} absolute relocs)"
 
           echo ""
           echo "── libgfortran.a ──"
           LGF=$(find ${PREFIX} -name 'libgfortran.a' -print -quit)
           echo "path: ${LGF}"
           ls -lh "${LGF}"
-          ABS=$(objdump -r "${LGF}" 2>/dev/null | grep -cE 'R_X86_64_32$' || echo "0")
+          ABS=$(objdump -r "${LGF}" 2>/dev/null | grep -cE 'R_X86_64_32$' || true)
+          ABS=${ABS:-0}
           echo "R_X86_64_32 relocations: ${ABS}"
-          [ "${ABS}" -eq 0 ] && echo "✓ PIC OK" || echo "⚠ possibile non-PIC"
+          [ "${ABS}" -eq 0 ] && echo "✓ PIC OK" || echo "⚠ possibile non-PIC (${ABS} absolute relocs)"
 
       - name: Package artifacts
         run: |
