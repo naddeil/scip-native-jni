@@ -16,8 +16,8 @@ mkdir -p "$PREFIX" "$PREFIX/include" "$PREFIX/lib" "$OUT"
 dnf install -y --allowerasing \
   gcc gcc-c++ gcc-gfortran make cmake wget curl git unzip zip which \
   tar xz bzip2 patch diffutils pkgconfig m4 perl \
-  java-11-amazon-corretto-devel maven.noarch patchelf swig python3\
-  libgfortran-static libquadmath-static glibc-static libstdc++-static
+  java-11-amazon-corretto-devel maven.noarch patchelf swig python3 \
+  libgfortran libquadmath libstdc++
 export JAVA_HOME=$(dirname $(dirname $(readlink -f $(which javac))))
 
 
@@ -26,14 +26,12 @@ export JAVA_HOME=$(dirname $(dirname $(readlink -f $(which javac))))
 # ============================================================
 if [ "${DEPS_CACHED:-}" != "true" ]; then
 
+source "$WORK/.github/workflows/scripts/deps-versions.env"
+
 cd "$WORK"
 mkdir -p staticdepsinstall && cd staticdepsinstall
 
 export PATH="/usr/local/bin:/usr/bin:/bin:/usr/local/sbin:/usr/sbin:/sbin:$PATH"
-
-ln -sf /usr/bin/curl /usr/local/bin/curl 2>/dev/null || true
-ln -sf /usr/bin/wget /usr/local/bin/wget 2>/dev/null || true
-
 
 # -----------------------------------------------------------
 # GMP, MPFR, Boost
@@ -42,46 +40,31 @@ ln -sf /usr/bin/wget /usr/local/bin/wget 2>/dev/null || true
 #   - MPFR for approximating rationals with floating-point numbers in SCIP
 # -----------------------------------------------------------
 
-curl -LO https://ftp.gnu.org/gnu/gmp/gmp-6.3.0.tar.xz
-tar xf gmp-6.3.0.tar.xz && cd gmp-6.3.0
+curl -LO "https://ftp.gnu.org/gnu/gmp/gmp-${GMP_VERSION}.tar.xz"
+tar xf "gmp-${GMP_VERSION}.tar.xz" && cd "gmp-${GMP_VERSION}"
 CFLAGS="-O3 -fPIC" ./configure --prefix="$PREFIX" --disable-shared --enable-static
-  make -s -j"$CORES" && make -s install && cd ..
+make -s -j"$CORES" && make -s install && cd ..
 
-# curl -LO https://www.mpfr.org/mpfr-current/mpfr-4.2.2.tar.xz
-# tar xf mpfr-4.2.2.tar.xz && cd mpfr-4.2.2
-# CFLAGS="-O3 -fPIC" ./configure --prefix="$PREFIX" --with-gmp="$PREFIX" --disable-shared --enable-static
-# make -s -j"$CORES" && make -s install && cd ..
-
-curl -LO https://archives.boost.io/release/1.85.0/source/boost_1_85_0.tar.bz2
-tar xf boost_1_85_0.tar.bz2 && cd boost_1_85_0
+# Boost
+BOOST_UNDERSCORE=$(echo "$BOOST_VERSION" | tr '.' '_')
+curl -LO "https://archives.boost.io/release/${BOOST_VERSION}/source/boost_${BOOST_UNDERSCORE}.tar.bz2"
+tar xf "boost_${BOOST_UNDERSCORE}.tar.bz2" && cd "boost_${BOOST_UNDERSCORE}"
 ./bootstrap.sh --with-libraries=program_options,serialization,regex,random,iostreams --prefix="$PREFIX"
 ./b2 -j"$CORES" -d0 link=static runtime-link=static cxxflags="-fPIC -O3" install && cd ..
 
-# -----------------------------------------------------------
-# OpenBLAS — BLAS + LAPACK + LAPACKE ottimizzati
-# Buildiamo noi e non scarichiamo già fatti poichè ci serve DYNAMIC_ARCH=1 per supportare tutte le cpu
-# -----------------------------------------------------------
+# OpenBLAS
 COMPILE_OB="${COMPILE_OB:-false}"
 if [ "$COMPILE_OB" = "true" ]; then
-  echo ">>> OpenBLAS: compilazione da sorgente (DYNAMIC_ARCH=1) …"
-  wget -q https://github.com/OpenMathLib/OpenBLAS/releases/download/v0.3.30/OpenBLAS-0.3.30.zip
-  unzip -q OpenBLAS-0.3.30.zip && mv OpenBLAS-0.3.30 OpenBLAS && cd OpenBLAS
-  unset CFLAGS CXXFLAGS LDFLAGS LIBRARY_PATH LD_LIBRARY_PATH CPATH PKG_CONFIG_PATH 2>/dev/null || true
+  wget -q "https://github.com/OpenMathLib/OpenBLAS/releases/download/v${OPENBLAS_VERSION}/OpenBLAS-${OPENBLAS_VERSION}.zip"
+  unzip -q "OpenBLAS-${OPENBLAS_VERSION}.zip" && mv "OpenBLAS-${OPENBLAS_VERSION}" OpenBLAS && cd OpenBLAS
+  unset CFLAGS CXXFLAGS LDFLAGS 2>/dev/null || true
   make -s -j"$CORES" NO_SHARED=1 DYNAMIC_ARCH=1 USE_OPENMP=0 CC=/usr/bin/gcc FC=/usr/bin/gfortran
   make -s PREFIX="$PREFIX" NO_SHARED=1 install
   cd ..
 else
-  echo ">>> OpenBLAS: installazione da package manager (dnf) …"
   dnf install -y openblas-static openblas-devel
-  # Copia headers e libreria statica nel prefix per uniformità col resto del build
-  cp -a /usr/include/openblas/* "$PREFIX/include/" 2>/dev/null \
-    || cp -a /usr/include/lapacke*.h /usr/include/cblas*.h /usr/include/f77blas.h \
-             /usr/include/openblas_config.h "$PREFIX/include/" 2>/dev/null || true
+  cp -a /usr/include/openblas/* "$PREFIX/include/" 2>/dev/null || true
   find /usr/lib64 /usr/lib -name "libopenblas*.a" -exec cp {} "$PREFIX/lib/" \; 2>/dev/null || true
-  # Fallback: se non c'è .a copiamo .so
-  if ! ls "$PREFIX/lib"/libopenblas*.a &>/dev/null; then
-    find /usr/lib64 /usr/lib -name "libopenblas*" -exec cp {} "$PREFIX/lib/" \; 2>/dev/null || true
-  fi
 fi
 
 # -----------------------------------------------------------
@@ -94,8 +77,8 @@ fi
 # L'unico forse utile sarebbe MA27 (ma non potremmo usarlo in teoria, è pubblico ma non permesso per utilizzo commerciale)
 # - sIpopt: build in single-precision lo disabilitiamo
 # -----------------------------------------------------------
-cd "$WORK/staticdepsinstall"
 
+cd "$WORK/staticdepsinstall"
 wget -q https://raw.githubusercontent.com/coin-or/coinbrew/master/coinbrew
 chmod u+x coinbrew
 
@@ -104,6 +87,7 @@ export CXXFLAGS="-O3 -fPIC"
 export FFLAGS="-O3 -fPIC"
 export LC_ALL=C
 
+
 ./coinbrew fetch Ipopt --no-prompt
 
 ./coinbrew build Ipopt \
@@ -111,10 +95,8 @@ export LC_ALL=C
   --no-prompt \
   --verbosity=1 \
   --static \
-  --with-blas-lflags="-L$PREFIX/lib -l:libopenblas.a -l:libgfortran.a -l:libquadmath.a -lm" \
-  --with-lapack-lflags="-L$PREFIX/lib -l:libopenblas.a -l:libgfortran.a -l:libquadmath.a -lm"
-
-# ./coinbrew test Ipopt --no-prompt || true
+  --with-blas-lflags="-L$PREFIX/lib -l:libopenblas.a -lgfortran -lquadmath -lm" \
+  --with-lapack-lflags="-L$PREFIX/lib -l:libopenblas.a -lgfortran -lquadmath -lm"
 
 ./coinbrew install Ipopt --no-prompt
 
@@ -146,7 +128,6 @@ cmake .. \
   -DCMAKE_C_FLAGS="-O3 -fPIC" \
   -DCMAKE_CXX_FLAGS="-O3 -fPIC -DCPPAD_MAX_NUM_THREADS=1024" \
   -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
-  -DCMAKE_SHARED_LINKER_FLAGS="-static-libgfortran" \
   -DSHARED=ON \
   -DBUILD_SHARED_LIBS=ON \
   -DREADLINE=off \
@@ -178,7 +159,6 @@ make -s -j"$CORES" && make -s install
 cd "$WORK"
 unzip -q resources/JSCIPOpt.zip
 cd JSCIPOpt
-rm -f src/*cxx src/*h 2>/dev/null || true
 rm -rf build && mkdir build && cd build
 cmake .. -DSCIP_DIR="$SCIP_BUILD" -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
   -DJAVA_AWT_LIBRARY=NotNeeded
@@ -194,36 +174,54 @@ cp "$WORK/JSCIPOpt/build/Release/scip.jar" "$OUT/"
 cp -L "$WORK/JSCIPOpt/build/Release/libjscip.so" "$OUT/"
 cp -L "$WORK/scipoptsuite/build/lib/libscip.so" "$OUT/libscip.so.${SCIP_MAJOR_MINOR}"
 
+# --- COPIA DIPENDENZE RUNTIME (Fondamentale per la portabilità) ---
+echo "Copia librerie runtime di sistema..."
+# Cerchiamo i percorsi reali delle librerie caricate da libscip.so
+LIBS_TO_COPY=("libgfortran.so.5" "libquadmath.so.0" "libstdc++.so.6" "libgcc_s.so.1")
+for libname in "${LIBS_TO_COPY[@]}"; do
+    LIB_PATH=$(ldd "$OUT/libscip.so.${SCIP_MAJOR_MINOR}" | grep "$libname" | awk '{print $3}')
+    if [ -f "$LIB_PATH" ]; then
+        cp -vL "$LIB_PATH" "$OUT/"
+    else
+        # Fallback se non risolto da ldd
+        cp -vL "/usr/lib64/$libname" "$OUT/" 2>/dev/null || true
+    fi
+done
 
-# Fix rpath — $ORIGIN permette di caricare le dipendenze dalla stessa cartella
+# Fix rpath — $ORIGIN permette di cercare le lib nella stessa cartella
 cd "$OUT"
 for f in *.so*; do
+  echo "Patching RPATH for $f"
   patchelf --set-rpath '$ORIGIN' "$f" 2>/dev/null || true
 done
 
 # ============================================================
-# 6. Checker — verifica rpath rinominando le cartelle sorgente
+# 6. Checker
 # ============================================================
-echo "=== Verifica rpath ==="
+echo "=== Verifica caricamento librerie ==="
 cd "$WORK"
-mv out outt
-mv deps_static deps_staticc
+# Rinominiamo temporaneamente le cartelle di build per simulare un ambiente pulito
+mv out out_test
+mv deps_static deps_static_hide
 
 python3 -c "
-import ctypes, sys
-for lib in ['outt/libscip.so.${SCIP_MAJOR_MINOR}', 'outt/libjscip.so']:
-    print(f'Carico {lib}...')
+import ctypes, sys, os
+libs = ['out_test/libgfortran.so.5', 'out_test/libscip.so.${SCIP_MAJOR_MINOR}', 'out_test/libjscip.so']
+for lib in libs:
+    path = os.path.abspath(lib)
+    print(f'Carico {path}...')
     try:
-        ctypes.CDLL(lib)
-        print('OK')
-    except OSError as e:
-        print(f'ERRORE: {e}')
+        ctypes.CDLL(path)
+        print('   OK')
+    except Exception as e:
+        print(f'   ERRORE: {e}')
         sys.exit(1)
 "
 
-mv deps_staticc deps_static
-mv outt out
+mv deps_static_hide deps_static
+mv out_test out
 
+# Finalizzazione zip
 cd "$WORK"
 zip -r out.zip out/
 
