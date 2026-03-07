@@ -1,0 +1,251 @@
+# ===========================================================================
+#  .github/workflows/build-fortran-static-pic.yml
+#
+#  Build libgfortran.a + libquadmath.a statiche con -fPIC.
+#  Trigger: manuale (workflow_dispatch) con parametri configurabili.
+#  Produce artifacts scaricabili per linux-x64 e/o linux-aarch64.
+# ===========================================================================
+name: Build Fortran Static PIC Libs
+
+on:
+  workflow_dispatch:
+    inputs:
+      gcc_version:
+        description: "Versione GCC da compilare"
+        required: true
+        default: "13.2.0"
+        type: string
+      platforms:
+        description: "Piattaforme target"
+        required: true
+        default: "linux-x64"
+        type: choice
+        options:
+          - linux-x64
+          - linux-aarch64
+          - both
+      retention_days:
+        description: "Giorni di retention degli artifact"
+        required: false
+        default: "30"
+        type: string
+
+env:
+  GCC_VERSION: ${{ github.event.inputs.gcc_version }}
+  PREFIX: /opt/fortran-pic
+  WORKDIR: /tmp/gcc-build
+
+jobs:
+  # ───────────────────────────────────────────────────────────────────────
+  #  Build x86_64
+  # ───────────────────────────────────────────────────────────────────────
+  build-x64:
+    if: ${{ inputs.platforms == 'linux-x64' || inputs.platforms == 'both' }}
+    runs-on: ubuntu-22.04
+    timeout-minutes: 120
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq \
+            build-essential gfortran wget xz-utils \
+            libgmp-dev libmpfr-dev libmpc-dev flex
+
+      - name: Cache GCC sources
+        uses: actions/cache@v4
+        with:
+          path: /tmp/gcc-build/gcc-${{ env.GCC_VERSION }}.tar.xz
+          key: gcc-src-${{ env.GCC_VERSION }}
+
+      - name: Download GCC ${{ env.GCC_VERSION }}
+        run: |
+          mkdir -p "${WORKDIR}"
+          cd "${WORKDIR}"
+          if [ ! -f "gcc-${GCC_VERSION}.tar.xz" ]; then
+            wget -q "https://ftp.gnu.org/gnu/gcc/gcc-${GCC_VERSION}/gcc-${GCC_VERSION}.tar.xz"
+          fi
+          tar xf "gcc-${GCC_VERSION}.tar.xz"
+
+      - name: Build libquadmath (static + PIC)
+        run: |
+          cd "${WORKDIR}/gcc-${GCC_VERSION}/libquadmath"
+          mkdir -p build-pic && cd build-pic
+          CFLAGS="-fPIC -O2" FCFLAGS="-fPIC -O2" CXXFLAGS="-fPIC -O2" \
+          ../configure \
+            --host=x86_64-linux-gnu \
+            --prefix="${PREFIX}" \
+            --disable-shared \
+            --enable-static
+          make -j$(nproc)
+          sudo make install
+
+      - name: Build libgfortran (static + PIC)
+        run: |
+          cd "${WORKDIR}/gcc-${GCC_VERSION}/libgfortran"
+          mkdir -p build-pic && cd build-pic
+          CFLAGS="-fPIC -O2" FCFLAGS="-fPIC -O2" CXXFLAGS="-fPIC -O2" \
+          LDFLAGS="-L${PREFIX}/lib" \
+          ../configure \
+            --host=x86_64-linux-gnu \
+            --prefix="${PREFIX}" \
+            --disable-shared \
+            --enable-static \
+            --with-libquadmath-support
+          make -j$(nproc)
+          sudo make install
+
+      - name: Verify PIC
+        run: |
+          echo "── libquadmath.a ──"
+          objdump -r ${PREFIX}/lib/libquadmath.a 2>/dev/null | grep -c 'R_X86_64_32$' || echo "0 absolute relocations (PIC OK)"
+          ls -lh ${PREFIX}/lib/libquadmath.a
+
+          echo "── libgfortran.a ──"
+          objdump -r ${PREFIX}/lib/libgfortran.a 2>/dev/null | grep -c 'R_X86_64_32$' || echo "0 absolute relocations (PIC OK)"
+          ls -lh ${PREFIX}/lib/libgfortran.a
+
+      - name: Package artifacts
+        run: |
+          cd ${PREFIX}
+          tar czf /tmp/fortran-static-pic-linux-x64-gcc${GCC_VERSION}.tar.gz \
+            lib/libgfortran.a \
+            lib/libquadmath.a \
+            lib/libgfortran.spec \
+            $(find lib -name '*.la' 2>/dev/null || true) \
+            $(find include -type f 2>/dev/null || true)
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: fortran-static-pic-linux-x64-gcc${{ env.GCC_VERSION }}
+          path: /tmp/fortran-static-pic-linux-x64-gcc${{ env.GCC_VERSION }}.tar.gz
+          retention-days: ${{ inputs.retention_days }}
+
+  # ───────────────────────────────────────────────────────────────────────
+  #  Build aarch64 (emulato via QEMU su runner x64)
+  # ───────────────────────────────────────────────────────────────────────
+  build-aarch64:
+    if: ${{ inputs.platforms == 'linux-aarch64' || inputs.platforms == 'both' }}
+    runs-on: ubuntu-22.04
+    timeout-minutes: 180
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64
+
+      - name: Cache GCC sources
+        uses: actions/cache@v4
+        with:
+          path: /tmp/gcc-src/gcc-${{ env.GCC_VERSION }}.tar.xz
+          key: gcc-src-${{ env.GCC_VERSION }}
+
+      - name: Download GCC sources (host)
+        run: |
+          mkdir -p /tmp/gcc-src
+          cd /tmp/gcc-src
+          if [ ! -f "gcc-${GCC_VERSION}.tar.xz" ]; then
+            wget -q "https://ftp.gnu.org/gnu/gcc/gcc-${GCC_VERSION}/gcc-${GCC_VERSION}.tar.xz"
+          fi
+
+      - name: Build in aarch64 container
+        uses: uraimo/run-on-arch-action@v2
+        with:
+          arch: aarch64
+          distro: ubuntu22.04
+          githubToken: ${{ github.token }}
+          dockerRunArgs: |
+            --volume /tmp/gcc-src:/gcc-src
+          setup: |
+            mkdir -p /tmp/artifacts
+          artifactPath: /tmp/artifacts
+          run: |
+            set -euo pipefail
+
+            apt-get update -qq
+            apt-get install -y -qq \
+              build-essential gfortran wget xz-utils \
+              libgmp-dev libmpfr-dev libmpc-dev flex
+
+            WORKDIR=/tmp/gcc-build
+            mkdir -p "${WORKDIR}"
+            cd "${WORKDIR}"
+            cp /gcc-src/gcc-${GCC_VERSION}.tar.xz .
+            tar xf gcc-${GCC_VERSION}.tar.xz
+
+            PREFIX=/opt/fortran-pic
+
+            # libquadmath
+            cd ${WORKDIR}/gcc-${GCC_VERSION}/libquadmath
+            mkdir -p build-pic && cd build-pic
+            CFLAGS="-fPIC -O2" FCFLAGS="-fPIC -O2" CXXFLAGS="-fPIC -O2" \
+            ../configure \
+              --host=aarch64-linux-gnu \
+              --prefix="${PREFIX}" \
+              --disable-shared \
+              --enable-static
+            make -j$(nproc)
+            make install
+
+            # libgfortran
+            cd ${WORKDIR}/gcc-${GCC_VERSION}/libgfortran
+            mkdir -p build-pic && cd build-pic
+            CFLAGS="-fPIC -O2" FCFLAGS="-fPIC -O2" CXXFLAGS="-fPIC -O2" \
+            LDFLAGS="-L${PREFIX}/lib" \
+            ../configure \
+              --host=aarch64-linux-gnu \
+              --prefix="${PREFIX}" \
+              --disable-shared \
+              --enable-static \
+              --with-libquadmath-support
+            make -j$(nproc)
+            make install
+
+            # Verify
+            ls -lh ${PREFIX}/lib/libgfortran.a ${PREFIX}/lib/libquadmath.a
+
+            # Package
+            cd ${PREFIX}
+            tar czf /tmp/artifacts/fortran-static-pic-linux-aarch64-gcc${GCC_VERSION}.tar.gz \
+              lib/libgfortran.a \
+              lib/libquadmath.a \
+              lib/libgfortran.spec \
+              $(find lib -name '*.la' 2>/dev/null || true) \
+              $(find include -type f 2>/dev/null || true)
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: fortran-static-pic-linux-aarch64-gcc${{ env.GCC_VERSION }}
+          path: /tmp/artifacts/fortran-static-pic-linux-aarch64-gcc${{ env.GCC_VERSION }}.tar.gz
+          retention-days: ${{ inputs.retention_days }}
+
+  # ───────────────────────────────────────────────────────────────────────
+  #  Summary
+  # ───────────────────────────────────────────────────────────────────────
+  summary:
+    needs: [build-x64, build-aarch64]
+    if: always()
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Summary
+        run: |
+          echo "## Build Fortran Static PIC Libs" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Parametro | Valore |" >> $GITHUB_STEP_SUMMARY
+          echo "|-----------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| GCC | ${{ env.GCC_VERSION }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Piattaforme | ${{ inputs.platforms }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Retention | ${{ inputs.retention_days }} giorni |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Jobs" >> $GITHUB_STEP_SUMMARY
+          echo "- x64: **${{ needs.build-x64.result }}**" >> $GITHUB_STEP_SUMMARY
+          echo "- aarch64: **${{ needs.build-aarch64.result }}**" >> $GITHUB_STEP_SUMMARY
