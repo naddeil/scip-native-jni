@@ -134,7 +134,7 @@ fi
 ./coinbrew install Ipopt --no-prompt
 
 echo "Dipendenze compilate."
-
+fi
 # ============================================================
 # 3. Download e compila SCIP
 # ============================================================
