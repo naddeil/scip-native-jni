@@ -190,7 +190,10 @@ unzip -q resources/JSCIPOpt.zip
 cd JSCIPOpt
 rm -f src/*cxx src/*h 2>/dev/null || true
 rm -rf build && mkdir build && cd build
-cmake .. -DSCIP_DIR="$SCIP_BUILD" -DCMAKE_POLICY_VERSION_MINIMUM=3.5
+cmake .. -DSCIP_DIR="$SCIP_BUILD" -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+  -DJAVA_HOME=$JAVA_HOME \
+  -DJAVA_AWT_LIBRARY=NotNeeded \
+  -DJAVA_JVM_LIBRARY=$(find $JAVA_HOME -name "libjvm.so" | head -1)
 make -s
 
 # ============================================================
