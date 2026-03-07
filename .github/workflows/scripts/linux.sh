@@ -141,7 +141,8 @@ export LC_ALL=C
   --no-prompt \
   --verbosity=1 \
   --static \
-  --with-lapack-lflags="-L$PREFIX/lib -lopenblas -lgfortran -lquadmath -lm"
+  --with-blas-lflags="-L$PREFIX/lib -l:libopenblas.a -l:libgfortran.a -l:libquadmath.a -lm" \
+  --with-lapack-lflags="-L$PREFIX/lib -l:libopenblas.a -l:libgfortran.a -l:libquadmath.a -lm" \
   # --with-metis-cflags="$METIS_CFLAGS" \
   # --with-metis-lflags="$METIS_LFLAGS" \
 
