@@ -67,13 +67,28 @@ tar xf boost_1_85_0.tar.bz2 && cd boost_1_85_0
 # OpenBLAS — BLAS + LAPACK + LAPACKE ottimizzati
 # Buildiamo noi e non scarichiamo già fatti poichè ci serve DYNAMIC_ARCH=1 per supportare tutte le cpu
 # -----------------------------------------------------------
-wget -q https://github.com/OpenMathLib/OpenBLAS/releases/download/v0.3.30/OpenBLAS-0.3.30.zip
-unzip -q OpenBLAS-0.3.30.zip && mv OpenBLAS-0.3.30 OpenBLAS && cd OpenBLAS
-unset CFLAGS CXXFLAGS LDFLAGS LIBRARY_PATH LD_LIBRARY_PATH CPATH PKG_CONFIG_PATH 2>/dev/null || true
-make -s -j"$CORES" NO_SHARED=1 DYNAMIC_ARCH=1 USE_OPENMP=0 CC=/usr/bin/gcc FC=/usr/bin/gfortran
-make -s PREFIX="$PREFIX" NO_SHARED=1 install
-cd ..
-
+COMPILE_OB="${COMPILE_OB:-false}"
+if [ "$COMPILE_OB" = "true" ]; then
+  echo ">>> OpenBLAS: compilazione da sorgente (DYNAMIC_ARCH=1) …"
+  wget -q https://github.com/OpenMathLib/OpenBLAS/releases/download/v0.3.30/OpenBLAS-0.3.30.zip
+  unzip -q OpenBLAS-0.3.30.zip && mv OpenBLAS-0.3.30 OpenBLAS && cd OpenBLAS
+  unset CFLAGS CXXFLAGS LDFLAGS LIBRARY_PATH LD_LIBRARY_PATH CPATH PKG_CONFIG_PATH 2>/dev/null || true
+  make -s -j"$CORES" NO_SHARED=1 DYNAMIC_ARCH=1 USE_OPENMP=0 CC=/usr/bin/gcc FC=/usr/bin/gfortran
+  make -s PREFIX="$PREFIX" NO_SHARED=1 install
+  cd ..
+else
+  echo ">>> OpenBLAS: installazione da package manager (dnf) …"
+  dnf install -y openblas-static openblas-devel
+  # Copia headers e libreria statica nel prefix per uniformità col resto del build
+  cp -a /usr/include/openblas/* "$PREFIX/include/" 2>/dev/null \
+    || cp -a /usr/include/lapacke*.h /usr/include/cblas*.h /usr/include/f77blas.h \
+             /usr/include/openblas_config.h "$PREFIX/include/" 2>/dev/null || true
+  find /usr/lib64 /usr/lib -name "libopenblas*.a" -exec cp {} "$PREFIX/lib/" \; 2>/dev/null || true
+  # Fallback: se non c'è .a copiamo .so
+  if ! ls "$PREFIX/lib"/libopenblas*.a &>/dev/null; then
+    find /usr/lib64 /usr/lib -name "libopenblas*" -exec cp {} "$PREFIX/lib/" \; 2>/dev/null || true
+  fi
+fi
 # -----------------------------------------------------------
 # METIS 5.1.1 — ordinamento matrice sparsa
 # Migliora MUMPS sui problemi con matrici sparse
