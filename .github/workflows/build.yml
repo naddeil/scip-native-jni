@@ -96,7 +96,7 @@ jobs:
       image: amazonlinux:2023
     steps:
       - name: Install base tools
-        run: dnf install -y --allowerasing tar gzip git
+        run: dnf install -y --allowerasing tar gzip git unzip
       - uses: actions/checkout@v4
 
       - uses: actions/download-artifact@v4
