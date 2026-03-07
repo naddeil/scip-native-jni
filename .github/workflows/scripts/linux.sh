@@ -213,14 +213,24 @@ LIBGFORTRAN_A=$(find "$PREFIX" -name 'libgfortran.a' -print -quit)
 LIBQUADMATH_A=$(find "$PREFIX" -name 'libquadmath.a' -print -quit)
 echo "Fortran static libs: $LIBGFORTRAN_A $LIBQUADMATH_A"
 
+# LTO + visibility notes:
+#   -DLTO=on abilita -flto su SCIP/SoPlex/PaPILO → ottimizzazione cross-modulo al link-time.
+#   -fvisibility=hidden nasconde tutti i simboli non esplicitamente esportati, permettendo
+#   a LTO di inlinare/eliminare funzioni interne alla .so (senza, le regole PIC impediscono
+#   queste ottimizzazioni sui simboli esportati — cfr. Hubička, LTO in GCC part 2, Firefox).
+#   SCIP usa la macro SCIP_EXPORT → __attribute__((visibility("default"))) sulle API pubbliche,
+#   quindi i simboli necessari a JSCIPOpt restano visibili.
+#   Se il build di JSCIPOpt dovesse fallire con undefined symbols, rimuovere -fvisibility=hidden.
+
 cmake .. \
   -G "Unix Makefiles" \
   -DCMAKE_BUILD_TYPE=Release \
   -DCMAKE_INSTALL_PREFIX="$WORK/scip_shared" \
   -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
   -DCMAKE_PREFIX_PATH="$PREFIX" \
-  -DCMAKE_C_FLAGS="-O3 -fPIC" \
-  -DCMAKE_CXX_FLAGS="-O3 -fPIC -DCPPAD_MAX_NUM_THREADS=1024" \
+  -DCMAKE_C_FLAGS="-O3 -fPIC -fvisibility=hidden -flto=auto" \
+  -DCMAKE_CXX_FLAGS="-O3 -fPIC -DCPPAD_MAX_NUM_THREADS=1024 -fvisibility=hidden -fvisibility-inlines-hidden -flto=auto" \
+  -DCMAKE_SHARED_LINKER_FLAGS="-flto=auto" \
   -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
   -DSHARED=ON \
   -DBUILD_SHARED_LIBS=ON \
@@ -240,7 +250,7 @@ cmake .. \
   -DPAPILO=on \
   -DZLIB=off \
   -DTHREADSAFE=on \
-  -DLTO=off \
+  -DLTO=on \
   -DTPI=tny
   # -DMPFR_LIBRARIES="$PREFIX/lib/libmpfr.a;$PREFIX/lib/libgmp.a" \
 # lto potenzialmente migliora ma analizzare bene build (https://hubicka.blogspot.com/2014/04/linktime-optimization-in-gcc-2-firefox.html)
@@ -257,6 +267,10 @@ else
   echo "OK: libgfortran/libquadmath linkate staticamente"
 fi
 
+# Verifica effetto -fvisibility=hidden: i simboli interni non dovrebbero essere esportati
+echo ">>> Verifica visibilità simboli (campione):"
+EXPORTED=$(nm -D "$WORK/scipoptsuite/build/lib/libscip.so" | grep ' T ' | wc -l)
+echo "  Simboli esportati (T): $EXPORTED"
 
 # ============================================================
 # 4. Compila JSCIPOpt (versione modificata con package it.prometeia.jscip)
