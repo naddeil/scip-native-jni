@@ -42,7 +42,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: macos-arm64
-          path: ${{ github.workspace }}/out.zip
+          path: out.zip
 
   macos-test:
     needs: macos-build
@@ -86,8 +86,8 @@ jobs:
         with:
           name: linux-x86_64
           path: |
-            ${{ github.workspace }}/out.zip
-            ${{ github.workspace }}/test_package.zip
+            out.zip
+            test_package.zip
 
   linux-test:
     needs: linux-build
