@@ -281,6 +281,8 @@ cmake .. \
   -DZLIB=off \
   -DTHREADSAFE=on \
   -DLTO=off \
+  -DGCG=off \
+  -DUG=off \
   -DTPI=tny
   # -DMPFR_LIBRARIES="$PREFIX/lib/libmpfr.a;$PREFIX/lib/libgmp.a" \
 # lto potenzialmente migliora ma analizzare bene build (https://hubicka.blogspot.com/2014/04/linktime-optimization-in-gcc-2-firefox.html)
