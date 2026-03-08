@@ -285,8 +285,7 @@ cmake .. \
   # -DMPFR_LIBRARIES="$PREFIX/lib/libmpfr.a;$PREFIX/lib/libgmp.a" \
 # lto potenzialmente migliora ma analizzare bene build (https://hubicka.blogspot.com/2014/04/linktime-optimization-in-gcc-2-firefox.html)
 
-make -s -j"$CORES" && make -s install
-
+make -s -j"$CORES" libscip && make -s install
 
 echo ">>> Verifica dipendenze:"
 if ldd "$WORK/scipoptsuite/build/lib/libscip.so" | grep -qE 'libgfortran|libquadmath'; then
