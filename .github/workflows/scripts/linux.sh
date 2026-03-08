@@ -298,7 +298,7 @@ cmake .. \
   -DFILTERSQP=off \
   -DWORHP=off \
   -DBOOST_ROOT="$PREFIX" \
-  -DPAPILO=on \
+  -DPAPILO=off \
   -DZLIB=off \
   -DTHREADSAFE=on \
   -DLTO=off \
@@ -306,7 +306,7 @@ cmake .. \
   -DGCG=off \
   -DUG=off
 
-make -s -j"$CORES" && make -s install
+make -s -j"$CORES" libscip soplex
 
 
 echo ">>> Verifica dipendenze:"
