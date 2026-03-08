@@ -214,6 +214,18 @@ for pc in "$PREFIX"/lib/pkgconfig/*.pc; do
   sed -i "s|-l:libquadmath\.a|$PREFIX/lib/libquadmath.a|g" "$pc"
 done
 
+# Fix ipopt.pc: promuovi Libs.private → Libs
+# (pkg_check_modules senza STATIC ignora Libs.private)
+for pc in "$PREFIX"/lib/pkgconfig/ipopt.pc "$PREFIX"/lib/pkgconfig/coinmumps.pc; do
+  [ -f "$pc" ] || continue
+  PRIV=$(grep '^Libs.private:' "$pc" | sed 's/^Libs.private://')
+  if [ -n "$PRIV" ]; then
+    sed -i "s|^Libs:.*|& $PRIV|" "$pc"
+    sed -i 's|^Libs.private:.*|Libs.private:|' "$pc"
+    echo ">>> Fixed $pc: merged Libs.private into Libs"
+  fi
+done
+
 echo "Dipendenze compilate."
 fi
 
@@ -256,11 +268,9 @@ cmake .. \
   -DCMAKE_PREFIX_PATH="$PREFIX" \
   -DCMAKE_C_FLAGS="-O3 -fPIC" \
   -DCMAKE_CXX_FLAGS="-O3 -fPIC -DCPPAD_MAX_NUM_THREADS=1024" \
-  -DCMAKE_EXE_LINKER_FLAGS="-L$PREFIX/lib -lopenblas -lgfortran -lquadmath -lm" \
-  -DCMAKE_SHARED_LINKER_FLAGS="-L$PREFIX/lib -lopenblas -lgfortran -lquadmath -lm" \
+  -DCMAKE_SHARED_LINKER_FLAGS="-L$PREFIX/lib" \
   -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
-  -DBLAS_LIBRARIES="$PREFIX/lib/libopenblas.a;$PREFIX/lib/libgfortran.a;$PREFIX/lib/libquadmath.a;m" \
-  -DLAPACK_LIBRARIES="$PREFIX/lib/libopenblas.a;$PREFIX/lib/libgfortran.a;$PREFIX/lib/libquadmath.a;m" \
+  -DBLAS_LIBRARIES="$PREFIX/lib/libopenblas.a" \
   -DSHARED=ON \
   -DBUILD_SHARED_LIBS=ON \
   -DREADLINE=off \
@@ -271,9 +281,8 @@ cmake .. \
   -DLPS=spx \
   -DSOPLEX_DIR="../soplex" \
   -DIPOPT=on \
-  -DIPOPT_DIR="$PREFIX" \
-  -DIPOPT_LIBRARIES="$PREFIX/lib/libipopt.a;$PREFIX/lib/libcoinmumps.a;$PREFIX/lib/libopenblas.a;$PREFIX/lib/libgfortran.a;$PREFIX/lib/libquadmath.a;m" \
   -DTBB=off \
+  -DIPOPT_DIR="$PREFIX" \
   -DFILTERSQP=off \
   -DWORHP=off \
   -DBOOST_ROOT="$PREFIX" \
