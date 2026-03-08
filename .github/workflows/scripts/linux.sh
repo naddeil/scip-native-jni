@@ -222,9 +222,8 @@ mkdir -p build && cd build
   CFLAGS="-O3 -fPIC" \
   CXXFLAGS="-O3 -fPIC" \
   FFLAGS="-O3 -fPIC" \
-  --with-lapack-lflags="$BLAS_LAPACK_LFLAGS" \
-  --with-mumps-cflags="-I$PREFIX/include/coin-or/mumps" \
-  --with-mumps-lflags="-L$PREFIX/lib -lcoinmumps $BLAS_LAPACK_LFLAGS"
+  PKG_CONFIG_PATH="$PREFIX/lib/pkgconfig" \
+  --with-lapack-lflags="$BLAS_LAPACK_LFLAGS"
 
 make -j"$CORES"
 make install
