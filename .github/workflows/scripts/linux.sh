@@ -25,7 +25,6 @@ export JAVA_HOME=$(dirname $(dirname $(readlink -f $(which javac))))
 # ============================================================
 # 1-2. Dipendenze (skip se cachate)
 # ============================================================
-if [ "${DEPS_CACHED:-}" != "true" ]; then
 
 # Carica versioni dipendenze
 source "$WORK/.github/workflows/scripts/deps-versions.env"
@@ -40,14 +39,10 @@ ln -sf /usr/bin/wget /usr/local/bin/wget 2>/dev/null || true
 
 
 # -----------------------------------------------------------
-# GMP, MPFR, Boost
+# GMP, Boost
 #   - GMP for rational arithmetic in ZIMPL, SoPlex, SCIP, and PaPILO,
 #   - Boost multiprecision library for rationals in SCIP (and PaPILO, if linked),
-#   - MPFR for approximating rationals with floating-point numbers in SCIP
 # -----------------------------------------------------------
-# CFLAGS="-O3 -fPIC"  ./configure --prefix="$PREFIX"
-# make -j$CORES && make install
-# cd ..
 
 curl -LO "https://ftp.gnu.org/gnu/gmp/gmp-${GMP_VERSION}.tar.xz"
 tar xf "gmp-${GMP_VERSION}.tar.xz" && cd "gmp-${GMP_VERSION}"
@@ -102,21 +97,25 @@ make -s -j"$CORES" all-target-libquadmath
 make -s -j"$CORES" all-target-libgfortran
 make -s install-target-libquadmath
 make -s install-target-libgfortran
+
+# Eliminamo eventuali libs dinamiche
 find "$PREFIX" -name '*.so*' -delete 2>/dev/null || true
 
-# Copia le .a in $PREFIX/lib per uniformità (GCC le installa in lib/gcc/...)
+# Copiamo le .a (statiche) in $PREFIX/lib per uniformità (GCC le installa in lib/gcc/...)
 find "$PREFIX" -name 'libgfortran.a' -exec cp {} "$PREFIX/lib/" \;
 find "$PREFIX" -name 'libquadmath.a' -exec cp {} "$PREFIX/lib/" \;
 
-# Symlink nel path di sistema del compilatore — serve perché coinbrew --static
-# setta LDFLAGS=-static e il configure di Mumps cerca -lgfortran nei path standard
+# Symlink nel path di sistema del compilatore
+#serve perché coinbrew --static setta LDFLAGS=-static e il configure di Mumps cerca -lgfortran nei path standard
 GCC_LIB_DIR=$(dirname "$(gfortran -print-libgcc-file-name)")
 ln -sf "$PREFIX/lib/libgfortran.a" "$GCC_LIB_DIR/libgfortran.a"
 ln -sf "$PREFIX/lib/libquadmath.a" "$GCC_LIB_DIR/libquadmath.a"
-# Rimuovi le .so di sistema così il linker è forzato a usare le nostre .a
+echo ">>> Symlink in $GCC_LIB_DIR (rimossi .so di sistema)"
+
+# Elimiamo le .so di sistema così il linker è forzato a usare le nostre .a
 rm -f "$GCC_LIB_DIR"/libgfortran.so* /usr/lib64/libgfortran.so* /usr/lib/libgfortran.so* 2>/dev/null || true
 rm -f "$GCC_LIB_DIR"/libquadmath.so* /usr/lib64/libquadmath.so* /usr/lib/libquadmath.so* 2>/dev/null || true
-echo ">>> Symlink in $GCC_LIB_DIR (rimossi .so di sistema)"
+echo ">>> Rimossi .so di sistema)"
 
 echo ">>> Verifica PIC libgfortran/libquadmath:"
 for LIB in libquadmath.a libgfortran.a; do
@@ -130,8 +129,7 @@ cd "$WORK/staticdepsinstall"
 # OpenBLAS — BLAS + LAPACK + LAPACKE ottimizzati
 # Buildiamo noi e non scarichiamo già fatti poichè ci serve DYNAMIC_ARCH=1 per supportare tutte le cpu
 # -----------------------------------------------------------
-# COMPILE_OB="true"
-# if [ "$COMPILE_OB" = "true" ]; then
+
 echo ">>> OpenBLAS: compilazione da sorgente (DYNAMIC_ARCH=1) …"
 wget -q "https://github.com/OpenMathLib/OpenBLAS/releases/download/v${OPENBLAS_VERSION}/OpenBLAS-${OPENBLAS_VERSION}.zip"
 unzip -q "OpenBLAS-${OPENBLAS_VERSION}.zip" && mv "OpenBLAS-${OPENBLAS_VERSION}" OpenBLAS && cd OpenBLAS
@@ -155,16 +153,6 @@ if [ ! -f "$PREFIX/lib/libopenblas.a" ]; then
     echo "ERRORE: nessuna libopenblas*.a trovata in $PREFIX!" && exit 1
   fi
 fi
-
-# else
-#   echo ">>> OpenBLAS: installazione da package manager (dnf) …"
-#   dnf install -y openblas-static openblas-devel
-#   # Copia headers e libreria statica nel prefix per uniformità col resto del build
-#   cp -a /usr/include/openblas/* "$PREFIX/include/" 2>/dev/null \
-#     || cp -a /usr/include/lapacke*.h /usr/include/cblas*.h /usr/include/f77blas.h \
-#              /usr/include/openblas_config.h "$PREFIX/include/" 2>/dev/null || true
-#   find /usr/lib64 /usr/lib -name "libopenblas*.a" -exec cp {} "$PREFIX/lib/" \; 2>/dev/null || true
-# fi
 
 # -----------------------------------------------------------
 # IPOPT via coinbrew
@@ -191,6 +179,7 @@ export LC_ALL=C
 (cd ThirdParty/Mumps && ./get.Mumps)
 
 # Passiamo i flag come ADDITIONAL_ per non inquinare il 'configure'
+# Passiamo i percorsi di blas e lapack con i nostri compilati statici
 ./coinbrew build Ipopt \
   --prefix="$PREFIX" \
   --no-prompt \
@@ -215,7 +204,6 @@ for pc in "$PREFIX"/lib/pkgconfig/*.pc; do
 done
 
 echo "Dipendenze compilate."
-fi
 
 # ============================================================
 # 3. Download e compila SCIP
@@ -279,7 +267,6 @@ cmake .. \
   -DTHREADSAFE=on \
   -DLTO=off \
   -DTPI=tny
-  # -DMPFR_LIBRARIES="$PREFIX/lib/libmpfr.a;$PREFIX/lib/libgmp.a" \
 # lto potenzialmente migliora ma analizzare bene build (https://hubicka.blogspot.com/2014/04/linktime-optimization-in-gcc-2-firefox.html)
 
 make -s -j"$CORES" && make -s install
@@ -303,7 +290,8 @@ echo "  Simboli esportati (T): $EXPORTED"
 # 4. Compila JSCIPOpt (versione modificata con package it.prometeia.jscip)
 # ============================================================
 cd "$WORK"
-unzip -q resources/JSCIPOpt.zip
+
+unzip -q resources/JSCIPOpt-${SCIPOPTSUITE_VERSION}.zip
 cd JSCIPOpt
 rm -f src/*cxx src/*h 2>/dev/null || true
 rm -rf build && mkdir build && cd build
