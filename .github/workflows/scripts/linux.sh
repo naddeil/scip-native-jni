@@ -40,24 +40,14 @@ ln -sf /usr/bin/wget /usr/local/bin/wget 2>/dev/null || true
 
 
 # -----------------------------------------------------------
-# GMP, MPFR, Boost
-#   - GMP for rational arithmetic in ZIMPL, SoPlex, SCIP, and PaPILO,
-#   - Boost multiprecision library for rationals in SCIP (and PaPILO, if linked),
-#   - MPFR for approximating rationals with floating-point numbers in SCIP
+# GMP, Boost
+#   - GMP for rational arithmetic in SoPlex, SCIP
+#   - Boost multiprecision library for rationals in SCIP/SoPlex
 # -----------------------------------------------------------
-# CFLAGS="-O3 -fPIC"  ./configure --prefix="$PREFIX"
-# make -j$CORES && make install
-# cd ..
-
 curl -LO "https://ftp.gnu.org/gnu/gmp/gmp-${GMP_VERSION}.tar.xz"
 tar xf "gmp-${GMP_VERSION}.tar.xz" && cd "gmp-${GMP_VERSION}"
 CFLAGS="-O3 -fPIC" CPPFLAGS="-DPIC" ./configure --prefix="$PREFIX" --with-pic --disable-shared > /dev/null
 make -s -j"$CORES" && make -s install && cd ..
-
-# curl -LO "https://www.mpfr.org/mpfr-current/mpfr-${MPFR_VERSION}.tar.xz"
-# tar xf "mpfr-${MPFR_VERSION}.tar.xz" && cd "mpfr-${MPFR_VERSION}"
-# CFLAGS="-O3 -fPIC" ./configure --prefix="$PREFIX" --with-gmp="$PREFIX" --disable-shared --enable-static
-# make -s -j"$CORES" && make -s install && cd ..
 
 BOOST_UNDERSCORE=$(echo "$BOOST_VERSION" | tr '.' '_')
 curl -LO "https://archives.boost.io/release/${BOOST_VERSION}/source/boost_${BOOST_UNDERSCORE}.tar.bz2"
@@ -108,8 +98,7 @@ find "$PREFIX" -name '*.so*' -delete 2>/dev/null || true
 find "$PREFIX" -name 'libgfortran.a' -exec cp {} "$PREFIX/lib/" \;
 find "$PREFIX" -name 'libquadmath.a' -exec cp {} "$PREFIX/lib/" \;
 
-# Symlink nel path di sistema del compilatore — serve perché coinbrew --static
-# setta LDFLAGS=-static e il configure di Mumps cerca -lgfortran nei path standard
+# Symlink nel path di sistema del compilatore — serve perché il configure di Mumps/Ipopt cerca -lgfortran nei path standard
 GCC_LIB_DIR=$(dirname "$(gfortran -print-libgcc-file-name)")
 ln -sf "$PREFIX/lib/libgfortran.a" "$GCC_LIB_DIR/libgfortran.a"
 ln -sf "$PREFIX/lib/libquadmath.a" "$GCC_LIB_DIR/libquadmath.a"
@@ -130,8 +119,6 @@ cd "$WORK/staticdepsinstall"
 # OpenBLAS — BLAS + LAPACK + LAPACKE ottimizzati
 # Buildiamo noi e non scarichiamo già fatti poichè ci serve DYNAMIC_ARCH=1 per supportare tutte le cpu
 # -----------------------------------------------------------
-# COMPILE_OB="true"
-# if [ "$COMPILE_OB" = "true" ]; then
 echo ">>> OpenBLAS: compilazione da sorgente (DYNAMIC_ARCH=1) …"
 wget -q "https://github.com/OpenMathLib/OpenBLAS/releases/download/v${OPENBLAS_VERSION}/OpenBLAS-${OPENBLAS_VERSION}.zip"
 unzip -q "OpenBLAS-${OPENBLAS_VERSION}.zip" && mv "OpenBLAS-${OPENBLAS_VERSION}" OpenBLAS && cd OpenBLAS
@@ -140,7 +127,6 @@ make -s -j"$CORES" NO_SHARED=1 DYNAMIC_ARCH=1 USE_OPENMP=0 CC=/usr/bin/gcc FC=/u
 make -s PREFIX="$PREFIX" NO_SHARED=1 install
 ls -la "$PREFIX/lib"/libopenblas* || echo "ERRORE: libopenblas non trovata in $PREFIX/lib"
 cd ..
-
 
 echo ">>> Verifica OpenBLAS install:"
 find "$PREFIX" -name 'libopenblas*.a' -ls
@@ -156,63 +142,98 @@ if [ ! -f "$PREFIX/lib/libopenblas.a" ]; then
   fi
 fi
 
-# else
-#   echo ">>> OpenBLAS: installazione da package manager (dnf) …"
-#   dnf install -y openblas-static openblas-devel
-#   # Copia headers e libreria statica nel prefix per uniformità col resto del build
-#   cp -a /usr/include/openblas/* "$PREFIX/include/" 2>/dev/null \
-#     || cp -a /usr/include/lapacke*.h /usr/include/cblas*.h /usr/include/f77blas.h \
-#              /usr/include/openblas_config.h "$PREFIX/include/" 2>/dev/null || true
-#   find /usr/lib64 /usr/lib -name "libopenblas*.a" -exec cp {} "$PREFIX/lib/" \; 2>/dev/null || true
-# fi
+# Flag BLAS/LAPACK condivisi per Mumps e Ipopt
+BLAS_LAPACK_LFLAGS="-L$PREFIX/lib -lopenblas -lgfortran -lquadmath -lm"
 
 # -----------------------------------------------------------
-# IPOPT via coinbrew
-#   - coinbrew fetch: scarica Ipopt + ThirdParty-Mumps + ThirdParty-ASL in automatico
-#   - coinbrew build: compila tutto in sequenza, propaga --with-metis-* anche a
-#   - ThirdParty-Mumps (non serve buildare MUMPS separatamente — evita conflitti dir)
-#   - mesti
-# Solver inclusi nella build: MUMPS no SPRAL, MKL Pardiso ecc. abbiamo problemi piccoli, sono superfluli. 
-# L'unico forse utile sarebbe MA27 (ma non potremmo usarlo in teoria, è pubblico ma non permesso per utilizzo commerciale)
-# - sIpopt: build in single-precision lo disabilitiamo
+# METIS 5 — ordering per Mumps (migliora performance fattorizzazione)
+# GKlib è prerequisito di METIS 5
 # -----------------------------------------------------------
+echo ">>> Build GKlib + METIS …"
 cd "$WORK/staticdepsinstall"
 
-wget -q https://raw.githubusercontent.com/coin-or/coinbrew/master/coinbrew
-chmod u+x coinbrew
+wget -q "https://github.com/KarypisLab/GKlib/archive/refs/tags/METIS-v5.1.1-DistDGL-0.5.tar.gz"
+tar xf "METIS-v5.1.1-DistDGL-0.5.tar.gz"
+cd "GKlib-METIS-v5.1.1-DistDGL-0.5"
+sed -i 's/^CONFIG_FLAGS =/CONFIG_FLAGS = -DCMAKE_POLICY_VERSION_MINIMUM=3.5/' Makefile
+make config prefix="$PREFIX" cc=/usr/bin/gcc 'CFLAGS=-O3 -fPIC'
+make -j"$CORES"
+make install
+cd ..
 
-# Rimuoviamo export globali che rompono i test di configurazione di ASL
-unset CFLAGS CXXFLAGS FFLAGS LDFLAGS
-export LC_ALL=C
+wget -q "https://github.com/KarypisLab/METIS/archive/refs/tags/v5.1.1-DistDGL-v0.5.tar.gz"
+tar xf "v5.1.1-DistDGL-v0.5.tar.gz"
+cd "METIS-5.1.1-DistDGL-v0.5"
+sed -i 's/^CONFIG_FLAGS =/CONFIG_FLAGS = -DCMAKE_POLICY_VERSION_MINIMUM=3.5/' Makefile
+make config prefix="$PREFIX" gklib_path="$WORK/staticdepsinstall/GKlib-METIS-v5.1.1-DistDGL-0.5" cc=/usr/bin/gcc 'CFLAGS=-O3 -fPIC'
+make -j"$CORES"
+make install
 
-./coinbrew fetch Ipopt --no-prompt
+echo ">>> Verifica METIS:"
+ls -la "$PREFIX/lib"/libmetis* "$PREFIX/include"/metis.h
 
-# Scarichiamo esplicitamente i sorgenti ASL e Mumps
-(cd ThirdParty/Mumps && ./get.Mumps)
+cd "$WORK/staticdepsinstall"
 
-# Passiamo i flag come ADDITIONAL_ per non inquinare il 'configure'
-./coinbrew build Ipopt \
+# -----------------------------------------------------------
+# ThirdParty-Mumps (build diretta, con METIS)
+# -----------------------------------------------------------
+echo ">>> Build ThirdParty-Mumps …"
+git clone https://github.com/coin-or-tools/ThirdParty-Mumps.git
+cd ThirdParty-Mumps
+./get.Mumps
+./configure \
   --prefix="$PREFIX" \
-  --no-prompt \
-  --verbosity=1 \
-  --static \
-  --disable-shared \
-  ADDITIONAL_CFLAGS="-O3 -fPIC" \
-  ADDITIONAL_CXXFLAGS="-O3 -fPIC" \
-  ADDITIONAL_FFLAGS="-O3 -fPIC" \
-  --with-blas-lflags="-L$PREFIX/lib -l:libopenblas.a -l:libgfortran.a -l:libquadmath.a -lm" \
-  --with-lapack-lflags="-L$PREFIX/lib -l:libopenblas.a -l:libgfortran.a -l:libquadmath.a -lm"
+  --enable-shared=no \
+  --enable-static=yes \
+  --with-pic \
+  CFLAGS="-O3 -fPIC" \
+  FCFLAGS="-O3 -fPIC" \
+  CXXFLAGS="-O3 -fPIC" \
+  --with-metis-cflags="-I$PREFIX/include" \
+  --with-metis-lflags="-L$PREFIX/lib -lmetis -lm" \
+  --with-lapack-lflags="$BLAS_LAPACK_LFLAGS"
+make -j"$CORES"
+make install
+cd ..
 
-./coinbrew install Ipopt --no-prompt
+echo ">>> Verifica Mumps:"
+ls -la "$PREFIX/lib"/libcoinmumps*
 
-# Fix .pc files: sostituisci -l:lib*.a con path assoluti
-# Ipopt propaga queste flags a SCIP via pkg-config, e il linker
-# non trova -l:libopenblas.a senza -L
-for pc in "$PREFIX"/lib/pkgconfig/*.pc; do
-  sed -i "s|-l:libopenblas\.a|$PREFIX/lib/libopenblas.a|g" "$pc"
-  sed -i "s|-l:libgfortran\.a|$PREFIX/lib/libgfortran.a|g" "$pc"
-  sed -i "s|-l:libquadmath\.a|$PREFIX/lib/libquadmath.a|g" "$pc"
-done
+# -----------------------------------------------------------
+# Ipopt (build diretta, senza coinbrew)
+# -----------------------------------------------------------
+echo ">>> Build Ipopt ${IPOPT_VERSION} …"
+cd "$WORK/staticdepsinstall"
+
+wget -q "https://github.com/coin-or/Ipopt/archive/refs/tags/releases/${IPOPT_VERSION}.zip" -O "ipopt-${IPOPT_VERSION}.zip"
+unzip -q "ipopt-${IPOPT_VERSION}.zip"
+cd "Ipopt-releases-${IPOPT_VERSION}"
+mkdir -p build && cd build
+
+../configure \
+  --prefix="$PREFIX" \
+  --enable-shared=no \
+  --enable-static=yes \
+  --with-pic \
+  --disable-sipopt \
+  --disable-java \
+  --without-hsl \
+  --without-asl \
+  CFLAGS="-O3 -fPIC" \
+  CXXFLAGS="-O3 -fPIC" \
+  FFLAGS="-O3 -fPIC" \
+  --with-lapack-lflags="$BLAS_LAPACK_LFLAGS" \
+  --with-mumps-cflags="-I$PREFIX/include/coin-or/mumps" \
+  --with-mumps-lflags="-L$PREFIX/lib -lcoinmumps $BLAS_LAPACK_LFLAGS"
+
+make -j"$CORES"
+make install
+cd ../..
+
+echo ">>> Verifica Ipopt:"
+ls -la "$PREFIX/lib"/libipopt*
+echo ">>> pkg-config ipopt:"
+PKG_CONFIG_PATH="$PREFIX/lib/pkgconfig" pkg-config --libs ipopt || true
 
 echo "Dipendenze compilate."
 fi
@@ -256,7 +277,7 @@ cmake .. \
   -DCMAKE_PREFIX_PATH="$PREFIX" \
   -DCMAKE_C_FLAGS="-O3 -fPIC" \
   -DCMAKE_CXX_FLAGS="-O3 -fPIC -DCPPAD_MAX_NUM_THREADS=1024" \
-  -DCMAKE_EXE_LINKER_FLAGS="-L$PREFIX/lib -Wl,--start-group -lipopt -lcoinmumps -lopenblas -lgfortran -lquadmath -Wl,--end-group -lm -lpthread" \
+  -DCMAKE_EXE_LINKER_FLAGS="-L$PREFIX/lib -Wl,--start-group -lipopt -lcoinmumps -lmetis -lopenblas -lgfortran -lquadmath -Wl,--end-group -lm -lpthread" \
   -DCMAKE_SHARED_LINKER_FLAGS="-L$PREFIX/lib -lopenblas -lgfortran -lquadmath -lm" \
   -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
   -DBLAS_LIBRARIES="$PREFIX/lib/libopenblas.a;$PREFIX/lib/libgfortran.a;$PREFIX/lib/libquadmath.a;m" \
@@ -272,7 +293,7 @@ cmake .. \
   -DSOPLEX_DIR="../soplex" \
   -DIPOPT=on \
   -DIPOPT_DIR="$PREFIX" \
-  -DIPOPT_LIBRARIES="$PREFIX/lib/libipopt.a;$PREFIX/lib/libcoinmumps.a;$PREFIX/lib/libopenblas.a;$PREFIX/lib/libgfortran.a;$PREFIX/lib/libquadmath.a;m" \
+  -DIPOPT_LIBRARIES="$PREFIX/lib/libipopt.a;$PREFIX/lib/libcoinmumps.a;$PREFIX/lib/libmetis.a;$PREFIX/lib/libopenblas.a;$PREFIX/lib/libgfortran.a;$PREFIX/lib/libquadmath.a;m" \
   -DTBB=off \
   -DFILTERSQP=off \
   -DWORHP=off \
@@ -281,13 +302,12 @@ cmake .. \
   -DZLIB=off \
   -DTHREADSAFE=on \
   -DLTO=off \
+  -DTPI=tny \
   -DGCG=off \
-  -DUG=off \
-  -DTPI=tny
-  # -DMPFR_LIBRARIES="$PREFIX/lib/libmpfr.a;$PREFIX/lib/libgmp.a" \
-# lto potenzialmente migliora ma analizzare bene build (https://hubicka.blogspot.com/2014/04/linktime-optimization-in-gcc-2-firefox.html)
+  -DUG=off
 
 make -s -j"$CORES" && make -s install
+
 
 echo ">>> Verifica dipendenze:"
 if ldd "$WORK/scipoptsuite/build/lib/libscip.so" | grep -qE 'libgfortran|libquadmath'; then
@@ -296,6 +316,14 @@ if ldd "$WORK/scipoptsuite/build/lib/libscip.so" | grep -qE 'libgfortran|libquad
   exit 1
 else
   echo "OK: libgfortran/libquadmath linkate staticamente"
+fi
+
+# Verifica che METIS sia linkato
+echo ">>> Verifica METIS in libscip.so:"
+if nm -D "$WORK/scipoptsuite/build/lib/libscip.so" | grep -q 'METIS_NodeND'; then
+  echo "OK: simboli METIS presenti"
+else
+  echo "WARN: simboli METIS non trovati (Mumps potrebbe non usare METIS ordering)"
 fi
 
 # Verifica effetto -fvisibility=hidden: i simboli interni non dovrebbero essere esportati
@@ -324,10 +352,6 @@ rm -rf "$OUT"/*
 cp "$WORK/JSCIPOpt/build/Release/scip.jar" "$OUT/"
 cp -L "$WORK/JSCIPOpt/build/Release/libjscip.so" "$OUT/"
 cp -L "$WORK/scipoptsuite/build/lib/libscip.so" "$OUT/libscip.so.${SCIP_MAJOR_MINOR}"
-
-# GMP resta shared (assembly ottimizzato richiede PIC nativo)
-# cp -L "$PREFIX/lib/libgmp.so" "$OUT/libgmp.so.10"
-
 
 # Fix rpath — $ORIGIN permette di caricare le dipendenze dalla stessa cartella
 cd "$OUT"
