@@ -51,7 +51,7 @@ ln -sf /usr/bin/wget /usr/local/bin/wget 2>/dev/null || true
 
 curl -LO "https://ftp.gnu.org/gnu/gmp/gmp-${GMP_VERSION}.tar.xz"
 tar xf "gmp-${GMP_VERSION}.tar.xz" && cd "gmp-${GMP_VERSION}"
-CFLAGS="-O3 -fPIC" CPPFLAGS="-DPIC" ./configure --prefix="$PREFIX" --with-pic --disable-shared
+CFLAGS="-O3 -fPIC" CPPFLAGS="-DPIC" ./configure --prefix="$PREFIX" --with-pic --disable-shared > /dev/null
 make -s -j"$CORES" && make -s install && cd ..
 
 # curl -LO "https://www.mpfr.org/mpfr-current/mpfr-${MPFR_VERSION}.tar.xz"
