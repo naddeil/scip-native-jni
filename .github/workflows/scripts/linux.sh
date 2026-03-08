@@ -205,6 +205,15 @@ export LC_ALL=C
 
 ./coinbrew install Ipopt --no-prompt
 
+# Fix .pc files: sostituisci -l:lib*.a con path assoluti
+# Ipopt propaga queste flags a SCIP via pkg-config, e il linker
+# non trova -l:libopenblas.a senza -L
+for pc in "$PREFIX"/lib/pkgconfig/*.pc; do
+  sed -i "s|-l:libopenblas\.a|$PREFIX/lib/libopenblas.a|g" "$pc"
+  sed -i "s|-l:libgfortran\.a|$PREFIX/lib/libgfortran.a|g" "$pc"
+  sed -i "s|-l:libquadmath\.a|$PREFIX/lib/libquadmath.a|g" "$pc"
+done
+
 echo "Dipendenze compilate."
 fi
 
