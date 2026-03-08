@@ -254,9 +254,9 @@ cmake .. \
   -DCMAKE_INSTALL_PREFIX="$WORK/scip_shared" \
   -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
   -DCMAKE_PREFIX_PATH="$PREFIX" \
-  -DCMAKE_C_FLAGS="-O3 -fPIC -fvisibility=hidden -flto=auto" \
-  -DCMAKE_CXX_FLAGS="-O3 -fPIC -DCPPAD_MAX_NUM_THREADS=1024 -fvisibility=hidden -fvisibility-inlines-hidden -flto=auto -ftls-model=global-dynamic" \
-  -DCMAKE_SHARED_LINKER_FLAGS="-flto=auto -L$PREFIX/lib" \
+  -DCMAKE_C_FLAGS="-O3 -fPIC" \
+  -DCMAKE_CXX_FLAGS="-O3 -fPIC -DCPPAD_MAX_NUM_THREADS=1024" \
+  -DCMAKE_SHARED_LINKER_FLAGS="-L$PREFIX/lib" \
   -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
   -DBLAS_LIBRARIES="$PREFIX/lib/libopenblas.a"
   -DSHARED=ON \
@@ -277,7 +277,7 @@ cmake .. \
   -DPAPILO=on \
   -DZLIB=off \
   -DTHREADSAFE=on \
-  -DLTO=on \
+  -DLTO=off \
   -DTPI=tny
   # -DMPFR_LIBRARIES="$PREFIX/lib/libmpfr.a;$PREFIX/lib/libgmp.a" \
 # lto potenzialmente migliora ma analizzare bene build (https://hubicka.blogspot.com/2014/04/linktime-optimization-in-gcc-2-firefox.html)
