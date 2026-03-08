@@ -256,7 +256,7 @@ cmake .. \
   -DCMAKE_PREFIX_PATH="$PREFIX" \
   -DCMAKE_C_FLAGS="-O3 -fPIC" \
   -DCMAKE_CXX_FLAGS="-O3 -fPIC -DCPPAD_MAX_NUM_THREADS=1024" \
-  -DCMAKE_EXE_LINKER_FLAGS="-L$PREFIX/lib -lopenblas -lgfortran -lquadmath -lm" \
+  -DCMAKE_EXE_LINKER_FLAGS="-L$PREFIX/lib -Wl,--start-group -lipopt -lcoinmumps -lopenblas -lgfortran -lquadmath -Wl,--end-group -lm -lpthread" \
   -DCMAKE_SHARED_LINKER_FLAGS="-L$PREFIX/lib -lopenblas -lgfortran -lquadmath -lm" \
   -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
   -DBLAS_LIBRARIES="$PREFIX/lib/libopenblas.a;$PREFIX/lib/libgfortran.a;$PREFIX/lib/libquadmath.a;m" \
