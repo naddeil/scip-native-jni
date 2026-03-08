@@ -256,10 +256,11 @@ cmake .. \
   -DCMAKE_PREFIX_PATH="$PREFIX" \
   -DCMAKE_C_FLAGS="-O3 -fPIC" \
   -DCMAKE_CXX_FLAGS="-O3 -fPIC -DCPPAD_MAX_NUM_THREADS=1024" \
-  -DCMAKE_SHARED_LINKER_FLAGS="-L$PREFIX/lib" \
+  -DCMAKE_EXE_LINKER_FLAGS="-L$PREFIX/lib -lopenblas -lgfortran -lquadmath -lm" \
+  -DCMAKE_SHARED_LINKER_FLAGS="-L$PREFIX/lib -lopenblas -lgfortran -lquadmath -lm" \
   -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
-  -DBLAS_LIBRARIES="$PREFIX/lib/libopenblas.a" \
-  -DLAPACK_LIBRARIES="$PREFIX/lib/libopenblas.a" \
+  -DBLAS_LIBRARIES="$PREFIX/lib/libopenblas.a;$PREFIX/lib/libgfortran.a;$PREFIX/lib/libquadmath.a;m" \
+  -DLAPACK_LIBRARIES="$PREFIX/lib/libopenblas.a;$PREFIX/lib/libgfortran.a;$PREFIX/lib/libquadmath.a;m" \
   -DSHARED=ON \
   -DBUILD_SHARED_LIBS=ON \
   -DREADLINE=off \
@@ -270,8 +271,9 @@ cmake .. \
   -DLPS=spx \
   -DSOPLEX_DIR="../soplex" \
   -DIPOPT=on \
-  -DTBB=off \
   -DIPOPT_DIR="$PREFIX" \
+  -DIPOPT_LIBRARIES="$PREFIX/lib/libipopt.a;$PREFIX/lib/libcoinmumps.a;$PREFIX/lib/libopenblas.a;$PREFIX/lib/libgfortran.a;$PREFIX/lib/libquadmath.a;m" \
+  -DTBB=off \
   -DFILTERSQP=off \
   -DWORHP=off \
   -DBOOST_ROOT="$PREFIX" \
