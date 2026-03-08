@@ -255,7 +255,8 @@ cmake .. \
   -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
   -DCMAKE_PREFIX_PATH="$PREFIX" \
   -DCMAKE_C_FLAGS="-O3 -fPIC -fvisibility=hidden -flto=auto" \
-  -DCMAKE_CXX_FLAGS="-O3 -fPIC -DCPPAD_MAX_NUM_THREADS=1024 -fvisibility=hidden -fvisibility-inlines-hidden -flto=auto -ftls-model=global-dynamic" \  -DCMAKE_SHARED_LINKER_FLAGS="-flto=auto -L$PREFIX/lib" \
+  -DCMAKE_CXX_FLAGS="-O3 -fPIC -DCPPAD_MAX_NUM_THREADS=1024 -fvisibility=hidden -fvisibility-inlines-hidden -flto=auto -ftls-model=global-dynamic" \
+  -DCMAKE_SHARED_LINKER_FLAGS="-flto=auto -L$PREFIX/lib" \
   -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
   -DSHARED=ON \
   -DBUILD_SHARED_LIBS=ON \
