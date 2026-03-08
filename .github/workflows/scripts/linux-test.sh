@@ -6,10 +6,10 @@ WORK="$GITHUB_WORKSPACE"
 OUT="$WORK/out"
 SCIP_MAJOR_MINOR=$(echo "$SCIPOPTSUITE_VERSION" | cut -d. -f1-2)
 
+dnf remove -y java-17-amazon-corretto* 2>/dev/null || true
 dnf install -y --allowerasing \
   java-11-amazon-corretto-devel maven.noarch \
   python3 unzip which
-dnf remove -y java-17-amazon-corretto* 2>/dev/null || true
 export JAVA_HOME=$(dirname $(dirname $(readlink -f $(which javac))))
 
 java --version
