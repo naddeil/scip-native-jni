@@ -95,13 +95,13 @@ mkdir -p "$FORTRAN_BUILD/build" && cd "$FORTRAN_BUILD/build"
   --disable-libssp \
   --disable-libcc1 \
   --disable-libitm \
-  --without-isl
+  --without-isl > /dev/null
 
 make -s -j"$CORES" all-gcc
 make -s -j"$CORES" all-target-libquadmath
 make -s -j"$CORES" all-target-libgfortran
-make install-target-libquadmath
-make install-target-libgfortran
+make -s install-target-libquadmath
+make -s install-target-libgfortran
 find "$PREFIX" -name '*.so*' -delete 2>/dev/null || true
 
 # Copia le .a in $PREFIX/lib per uniformità (GCC le installa in lib/gcc/...)
