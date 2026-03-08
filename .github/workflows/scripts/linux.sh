@@ -138,7 +138,24 @@ unzip -q "OpenBLAS-${OPENBLAS_VERSION}.zip" && mv "OpenBLAS-${OPENBLAS_VERSION}"
 unset CFLAGS CXXFLAGS LDFLAGS LIBRARY_PATH LD_LIBRARY_PATH CPATH PKG_CONFIG_PATH 2>/dev/null || true
 make -s -j"$CORES" NO_SHARED=1 DYNAMIC_ARCH=1 USE_OPENMP=0 CC=/usr/bin/gcc FC=/usr/bin/gfortran
 make -s PREFIX="$PREFIX" NO_SHARED=1 install
+ls -la "$PREFIX/lib"/libopenblas* || echo "ERRORE: libopenblas non trovata in $PREFIX/lib"
 cd ..
+
+
+echo ">>> Verifica OpenBLAS install:"
+find "$PREFIX" -name 'libopenblas*.a' -ls
+
+# Se il file non si chiama esattamente libopenblas.a, crea symlink
+if [ ! -f "$PREFIX/lib/libopenblas.a" ]; then
+  OB_LIB=$(find "$PREFIX" -name 'libopenblas*.a' -print -quit)
+  if [ -n "$OB_LIB" ]; then
+    echo ">>> Symlink: $OB_LIB → $PREFIX/lib/libopenblas.a"
+    ln -sf "$OB_LIB" "$PREFIX/lib/libopenblas.a"
+  else
+    echo "ERRORE: nessuna libopenblas*.a trovata in $PREFIX!" && exit 1
+  fi
+fi
+
 # else
 #   echo ">>> OpenBLAS: installazione da package manager (dnf) …"
 #   dnf install -y openblas-static openblas-devel
