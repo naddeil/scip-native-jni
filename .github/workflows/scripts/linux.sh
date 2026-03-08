@@ -208,11 +208,11 @@ export LC_ALL=C
 # Fix .pc files: sostituisci -l:lib*.a con path assoluti
 # Ipopt propaga queste flags a SCIP via pkg-config, e il linker
 # non trova -l:libopenblas.a senza -L
-# for pc in "$PREFIX"/lib/pkgconfig/*.pc; do
-#   sed -i "s|-l:libopenblas\.a|$PREFIX/lib/libopenblas.a|g" "$pc"
-#   sed -i "s|-l:libgfortran\.a|$PREFIX/lib/libgfortran.a|g" "$pc"
-#   sed -i "s|-l:libquadmath\.a|$PREFIX/lib/libquadmath.a|g" "$pc"
-# done
+for pc in "$PREFIX"/lib/pkgconfig/*.pc; do
+  sed -i "s|-l:libopenblas\.a|$PREFIX/lib/libopenblas.a|g" "$pc"
+  sed -i "s|-l:libgfortran\.a|$PREFIX/lib/libgfortran.a|g" "$pc"
+  sed -i "s|-l:libquadmath\.a|$PREFIX/lib/libquadmath.a|g" "$pc"
+done
 
 echo "Dipendenze compilate."
 fi
@@ -258,6 +258,7 @@ cmake .. \
   -DCMAKE_CXX_FLAGS="-O3 -fPIC -DCPPAD_MAX_NUM_THREADS=1024 -fvisibility=hidden -fvisibility-inlines-hidden -flto=auto -ftls-model=global-dynamic" \
   -DCMAKE_SHARED_LINKER_FLAGS="-flto=auto -L$PREFIX/lib" \
   -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+  -DBLAS_LIBRARIES="$PREFIX/lib/libopenblas.a"
   -DSHARED=ON \
   -DBUILD_SHARED_LIBS=ON \
   -DREADLINE=off \
