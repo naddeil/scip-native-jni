@@ -8,6 +8,14 @@ OUT="$WORK/out"
 CORES=$(sysctl -n hw.logicalcpu)
 SCIP_MAJOR_MINOR=$(echo "$SCIPOPTSUITE_VERSION" | cut -d. -f1-2)
 
+# Verifica che JSCIPOpt per questa versione sia disponibile
+if [ ! -f "$WORK/resources/JSCIPOpt-${SCIPOPTSUITE_VERSION}.zip" ]; then
+  echo "Errore: JSCIPOpt-${SCIPOPTSUITE_VERSION}.zip non trovato in resources/"
+  echo "Versioni disponibili:"
+  ls -1 "$WORK/resources"/JSCIPOpt-*.zip 2>/dev/null | xargs -n1 basename || echo "  Nessuna"
+  exit 1
+fi
+
 if [ "${STATIC:-false}" = "true" ]; then
   SHARED_FLAG=OFF; BUILD_SHARED=OFF
 else
@@ -97,7 +105,7 @@ make -s -j"$CORES" && make -s install
 # 4. Compila JSCIPOpt
 # ============================================================
 cd "$WORK"
-unzip -q resources/JSCIPOpt.zip
+unzip -q resources/JSCIPOpt-${SCIPOPTSUITE_VERSION}.zip
 cd JSCIPOpt && rm -rf build && mkdir build && cd build
 cmake .. -DSCIP_DIR="$SCIP_BUILD" -DCMAKE_POLICY_VERSION_MINIMUM=3.5
 make

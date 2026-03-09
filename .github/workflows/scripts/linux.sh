@@ -8,6 +8,14 @@ OUT="$WORK/out"
 CORES=$(nproc)
 SCIP_MAJOR_MINOR=$(echo "$SCIPOPTSUITE_VERSION" | cut -d. -f1-2)
 
+# Verifica che JSCIPOpt per questa versione sia disponibile
+if [ ! -f "$WORK/resources/JSCIPOpt-${SCIPOPTSUITE_VERSION}.zip" ]; then
+  echo "Errore: JSCIPOpt-${SCIPOPTSUITE_VERSION}.zip non trovato in resources/"
+  echo "Versioni disponibili:"
+  ls -1 "$WORK/resources"/JSCIPOpt-*.zip 2>/dev/null | xargs -n1 basename || echo "  Nessuna"
+  exit 1
+fi
+
 mkdir -p "$PREFIX" "$PREFIX/include" "$PREFIX/lib" "$OUT"
 
 # ============================================================
@@ -27,8 +35,13 @@ export JAVA_HOME=$(dirname $(dirname $(readlink -f $(which javac))))
 # ============================================================
 if [ "${DEPS_CACHED:-}" != "true" ]; then
 
-# Carica versioni dipendenze
-source "$WORK/.github/workflows/scripts/deps-versions.env"
+# Carica versioni dipendenze specifiche per questa versione SCIP
+DEPS_FILE="$WORK/.github/workflows/scripts/deps-versions-${SCIPOPTSUITE_VERSION}.env"
+if [ ! -f "$DEPS_FILE" ]; then
+  echo "Errore: File dipendenze $DEPS_FILE non trovato"
+  exit 1
+fi
+source "$DEPS_FILE"
 
 cd "$WORK"
 mkdir -p staticdepsinstall && cd staticdepsinstall

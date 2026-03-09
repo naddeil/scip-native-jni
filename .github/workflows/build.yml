@@ -4,10 +4,12 @@ on:
   workflow_dispatch:
     inputs:
       scipoptsuite_version:
-        type: string
-        description: "SCIPOptSuite version (e.g. 9.2.3)"
+        type: choice
+        description: "SCIPOptSuite version"
         required: true
         default: "9.2.3"
+        options:
+          - "9.2.3"
       macos:
         type: boolean
         description: Build for macOS
