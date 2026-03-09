@@ -317,18 +317,6 @@ else
   echo "OK: libgfortran/libquadmath linkate staticamente"
 fi
 
-# Verifica che METIS sia linkato
-echo ">>> Verifica METIS in libscip.so:"
-if nm -D "$WORK/scipoptsuite/build/lib/libscip.so" | grep -q 'METIS_NodeND'; then
-  echo "OK: simboli METIS presenti"
-else
-  echo "WARN: simboli METIS non trovati (Mumps potrebbe non usare METIS ordering)"
-fi
-
-# Verifica effetto -fvisibility=hidden: i simboli interni non dovrebbero essere esportati
-echo ">>> Verifica visibilità simboli (campione):"
-EXPORTED=$(nm -D "$WORK/scipoptsuite/build/lib/libscip.so" | grep ' T ' | wc -l)
-echo "  Simboli esportati (T): $EXPORTED"
 
 # ============================================================
 # 4. Compila JSCIPOpt (versione modificata con package it.prometeia.jscip)
