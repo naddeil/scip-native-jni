@@ -12,7 +12,7 @@ SCIP_MAJOR_MINOR=$(echo "$SCIPOPTSUITE_VERSION" | cut -d. -f1-2)
 if [ ! -f "$WORK/resources/JSCIPOpt-${SCIPOPTSUITE_VERSION}.zip" ]; then
   echo "Errore: JSCIPOpt-${SCIPOPTSUITE_VERSION}.zip non trovato in resources/"
   echo "Versioni disponibili:"
-  ls -1 "$WORK/resources"/JSCIPOpt-*.zip 2>/dev/null | xargs -n1 basename || echo "  Nessuna"
+  for f in "$WORK/resources"/JSCIPOpt-*.zip; do [ -f "$f" ] && basename "$f"; done
   exit 1
 fi
 
