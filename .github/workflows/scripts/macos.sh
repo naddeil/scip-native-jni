@@ -22,7 +22,7 @@ mkdir -p "$PREFIX" "$PREFIX/include" "$PREFIX/lib" "$OUT"
 # 0. Prerequisiti brew
 # ============================================================
 brew update
-brew install gcc bison boost pkg-config wget cmake maven
+brew install gcc bison boost pkg-config wget cmake maven bash
 
 export CMAKE_IGNORE_PREFIX_PATH=/opt/homebrew
 
@@ -57,8 +57,8 @@ tar xf boost_1_85_0.tar.bz2 && cd boost_1_85_0
 curl -L -o coinbrew https://raw.githubusercontent.com/coin-or/coinbrew/master/coinbrew
 chmod +x coinbrew
 export CC=clang CXX=clang++ FC=gfortran
-./coinbrew fetch Ipopt --no-prompt
-./coinbrew build Ipopt --prefix="$PREFIX" --no-prompt \
+/opt/homebrew/bin/bash coinbrew fetch Ipopt --no-prompt
+/opt/homebrew/bin/bash coinbrew build Ipopt --prefix="$PREFIX" --no-prompt \
   --with-lapack-lflags="-framework Accelerate" \
   --with-blas-lflags="-framework Accelerate" \
   --disable-shared --enable-static \
