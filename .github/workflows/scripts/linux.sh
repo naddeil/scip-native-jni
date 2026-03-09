@@ -322,7 +322,7 @@ fi
 # 4. Compila JSCIPOpt (versione modificata con package it.prometeia.jscip)
 # ============================================================
 cd "$WORK"
-unzip -q resources/JSCIPOpt.zip
+unzip -q resources/JSCIPOpt-${SCIPOPTSUITE_VERSION}.zip
 cd JSCIPOpt
 rm -f src/*cxx src/*h 2>/dev/null || true
 rm -rf build && mkdir build && cd build
