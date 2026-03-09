@@ -10,6 +10,7 @@ on:
         default: "9.2.3"
         options:
           - "9.2.3"
+          - "10.0.1"
       macos:
         type: boolean
         description: Build for macOS
