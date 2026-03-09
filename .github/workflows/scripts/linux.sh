@@ -308,6 +308,7 @@ cmake .. \
   -DIPOPT_LIBRARIES="$PREFIX/lib/libipopt.a;$PREFIX/lib/libcoinmumps.a;$PREFIX/lib/libmetis.a;$PREFIX/lib/libopenblas.a;$PREFIX/lib/libgfortran.a;$PREFIX/lib/libquadmath.a;m" \
   -DTBB=off \
   -DFILTERSQP=off \
+  -DMPFR=off \
   -DWORHP=off \
   -DBOOST_ROOT="$PREFIX" \
   -DPAPILO=off \
