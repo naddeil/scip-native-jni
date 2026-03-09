@@ -19,10 +19,6 @@ on:
         type: boolean
         description: Build for Linux (Amazon Linux 2023)
         default: true
-      static:
-        type: boolean
-        description: Build static libraries (instead of shared)
-        default: false
   push:
     tags:
       - 'v*'
@@ -40,7 +36,6 @@ jobs:
         run: bash -x .github/workflows/scripts/macos.sh
         env:
           SCIPOPTSUITE_VERSION: ${{ github.event.inputs.scipoptsuite_version || '9.2.3' }}
-          STATIC: ${{ github.event.inputs.static || 'false' }}
 
       - uses: actions/upload-artifact@v4
         with:
@@ -83,7 +78,6 @@ jobs:
         run: bash -x .github/workflows/scripts/linux.sh
         env:
           SCIPOPTSUITE_VERSION: ${{ github.event.inputs.scipoptsuite_version || '9.2.3' }}
-          STATIC: ${{ github.event.inputs.static || 'false' }}
 
       - uses: actions/upload-artifact@v4
         with:

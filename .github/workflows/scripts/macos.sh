@@ -16,12 +16,6 @@ if [ ! -f "$WORK/resources/JSCIPOpt-${SCIPOPTSUITE_VERSION}.zip" ]; then
   exit 1
 fi
 
-if [ "${STATIC:-false}" = "true" ]; then
-  SHARED_FLAG=OFF; BUILD_SHARED=OFF
-else
-  SHARED_FLAG=ON; BUILD_SHARED=ON
-fi
-
 mkdir -p "$PREFIX" "$PREFIX/include" "$PREFIX/lib" "$OUT"
 
 # ============================================================
@@ -94,7 +88,7 @@ cmake .. \
   -DCMAKE_PREFIX_PATH="$PREFIX" \
   -DCMAKE_C_FLAGS="-O3 -fPIC" -DCMAKE_CXX_FLAGS="-O3 -fPIC" \
   -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
-  -DSHARED=$SHARED_FLAG -DBUILD_SHARED_LIBS=$BUILD_SHARED \
+  -DSHARED=ON -DBUILD_SHARED_LIBS=ON \
   -DREADLINE=off -DGMP=on -DSTATIC_GMP=on -DGMP_DIR="$PREFIX" -DZIMPL=off \
   -DLAPACK=on -DLPS=spx -DSOPLEX_DIR="../soplex" \
   -DIPOPT=on -DIPOPT_DIR="$PREFIX" \
