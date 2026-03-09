@@ -24,9 +24,6 @@ mkdir -p "$PREFIX" "$PREFIX/include" "$PREFIX/lib" "$OUT"
 brew update
 brew install gcc bison boost pkg-config wget cmake maven
 
-export CC="$(brew --prefix)/bin/gcc-$(brew list --versions gcc | awk '{print $2}' | cut -d. -f1)"
-export CXX="${CC/gcc-/g++-}"
-export FC="$(brew --prefix)/bin/gfortran-$(brew list --versions gcc | awk '{print $2}' | cut -d. -f1)"
 export CMAKE_IGNORE_PREFIX_PATH=/opt/homebrew
 
 # ============================================================
@@ -44,12 +41,12 @@ make -s -j"$CORES" && make -s install && cd ..
 
 curl -LO https://ftp.gnu.org/gnu/gmp/gmp-6.3.0.tar.xz
 tar xf gmp-6.3.0.tar.xz && cd gmp-6.3.0
-CFLAGS="-O3 -fPIC" ./configure --disable-shared --enable-static --prefix="$PREFIX"
+CFLAGS="-O3 -fPIC" ./configure --disable-shared --enable-static --prefix="$PREFIX" CC=clang
 make -s -j"$CORES" && make -s install && cd ..
 
 curl -LO https://www.mpfr.org/mpfr-current/mpfr-4.2.2.tar.xz
 tar xf mpfr-4.2.2.tar.xz && cd mpfr-4.2.2
-CFLAGS="-O3 -fPIC" ./configure --disable-shared --enable-static --prefix="$PREFIX" --with-gmp="$PREFIX"
+CFLAGS="-O3 -fPIC" ./configure --disable-shared --enable-static --prefix="$PREFIX" --with-gmp="$PREFIX" CC=clang
 make -s -j"$CORES" && make -s install && cd ..
 
 curl -LO https://archives.boost.io/release/1.85.0/source/boost_1_85_0.tar.bz2
@@ -59,6 +56,7 @@ tar xf boost_1_85_0.tar.bz2 && cd boost_1_85_0
 
 curl -L -o coinbrew https://raw.githubusercontent.com/coin-or/coinbrew/master/coinbrew
 chmod +x coinbrew
+export CC=clang CXX=clang++ FC=gfortran
 ./coinbrew fetch Ipopt --no-prompt
 ./coinbrew build Ipopt --prefix="$PREFIX" --no-prompt \
   --with-lapack-lflags="-framework Accelerate" \
