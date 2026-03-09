@@ -22,7 +22,7 @@ mkdir -p "$PREFIX" "$PREFIX/include" "$PREFIX/lib" "$OUT"
 # 0. Prerequisiti brew
 # ============================================================
 brew update
-brew install gcc bison boost pkg-config wget cmake maven bash
+brew install gcc bison boost pkg-config wget cmake maven
 
 export CMAKE_IGNORE_PREFIX_PATH=/opt/homebrew
 
@@ -54,15 +54,17 @@ tar xf boost_1_85_0.tar.bz2 && cd boost_1_85_0
 ./bootstrap.sh --with-libraries=program_options,serialization,regex,random,iostreams --prefix="$PREFIX"
 ./b2 -j"$CORES" -d0 link=static runtime-link=static cxxflags="-fPIC" install && cd ..
 
-curl -L -o coinbrew https://raw.githubusercontent.com/coin-or/coinbrew/master/coinbrew
-chmod +x coinbrew
-export CC=clang CXX=clang++ FC=gfortran
-/opt/homebrew/bin/bash coinbrew fetch Ipopt --no-prompt
-/opt/homebrew/bin/bash coinbrew build Ipopt --prefix="$PREFIX" --no-prompt \
+curl -LO https://github.com/coin-or/Ipopt/archive/refs/tags/releases/3.14.16.tar.gz
+tar xf 3.14.16.tar.gz && cd Ipopt-releases-3.14.16
+mkdir build && cd build
+../configure \
+  --prefix="$PREFIX" \
+  --disable-shared --enable-static \
   --with-lapack-lflags="-framework Accelerate" \
   --with-blas-lflags="-framework Accelerate" \
-  --disable-shared --enable-static \
-  ADD_CFLAGS="-O3 -fPIC" ADD_CXXFLAGS="-O3 -fPIC" ADD_FFLAGS="-O3 -fPIC"
+  CC=clang CXX=clang++ FC=gfortran \
+  CFLAGS="-O3 -fPIC" CXXFLAGS="-O3 -fPIC" FFLAGS="-O3 -fPIC"
+make -j"$CORES" && make install && cd ../..
 
 echo "Dipendenze compilate."
 else
