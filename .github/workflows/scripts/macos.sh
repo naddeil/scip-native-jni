@@ -95,10 +95,13 @@ cmake .. \
   -DCMAKE_C_FLAGS="-O3 -fPIC" -DCMAKE_CXX_FLAGS="-O3 -fPIC" \
   -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
   -DSHARED=$SHARED_FLAG -DBUILD_SHARED_LIBS=$BUILD_SHARED \
-  -DREADLINE=false -DGMP=true -DGMP_DIR="$PREFIX" -DZIMPL=false \
-  -DLAPACK=true -DLPS=spx -DSOPLEX_DIR="../soplex" \
-  -DIPOPT=true -DIPOPT_DIR="$PREFIX" \
-  -DFILTERSQP=false -DWORHP=false -DBOOST_ROOT="$PREFIX" -DLTO=on -DPAPILO=true
+  -DREADLINE=off -DGMP=on -DSTATIC_GMP=on -DGMP_DIR="$PREFIX" -DZIMPL=off \
+  -DLAPACK=on -DLPS=spx -DSOPLEX_DIR="../soplex" \
+  -DIPOPT=on -DIPOPT_DIR="$PREFIX" \
+  -DTBB=off -DFILTERSQP=off -DWORHP=off \
+  -DBOOST_ROOT="$PREFIX" -DPAPILO=off -DZLIB=off \
+  -DTHREADSAFE=on -DLTO=off -DTPI=tny \
+  -DGCG=off -DUG=off
 make -s -j"$CORES" && make -s install
 
 # ============================================================
