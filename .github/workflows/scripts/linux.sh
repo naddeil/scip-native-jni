@@ -7,6 +7,7 @@ SCIP_BUILD="$WORK/scipoptsuite/build"
 OUT="$WORK/out"
 CORES=$(nproc)
 SCIP_MAJOR_MINOR=$(echo "$SCIPOPTSUITE_VERSION" | cut -d. -f1-2)
+PGO_DIR="$WORK/pgo_profiles"
 
 # Verifica che JSCIPOpt per questa versione sia disponibile
 if [ ! -f "$WORK/resources/JSCIPOpt-${SCIPOPTSUITE_VERSION}.zip" ]; then
@@ -16,7 +17,17 @@ if [ ! -f "$WORK/resources/JSCIPOpt-${SCIPOPTSUITE_VERSION}.zip" ]; then
   exit 1
 fi
 
-mkdir -p "$PREFIX" "$PREFIX/include" "$PREFIX/lib" "$OUT"
+# Verifica risorse PGO
+if [ ! -f "$WORK/resources/PROBS.zip" ]; then
+  echo "Errore: PROBS.zip non trovato in resources/"
+  exit 1
+fi
+if [ ! -f "$WORK/resources/smoke_test_scip.c" ]; then
+  echo "Errore: smoke_test_scip.c non trovato in resources/"
+  exit 1
+fi
+
+mkdir -p "$PREFIX" "$PREFIX/include" "$PREFIX/lib" "$OUT" "$PGO_DIR"
 
 # ============================================================
 # Tuning flags
@@ -47,6 +58,8 @@ export JAVA_HOME=$(dirname $(dirname $(readlink -f $(which javac))))
 
 # ============================================================
 # 1-2. Dipendenze (skip se cachate)
+#      NON serve PGO sulle dipendenze: il tempo di solve è
+#      dominato da SCIP/SoPlex, non da OpenBLAS/Mumps/Ipopt.
 # ============================================================
 if [ "${DEPS_CACHED:-}" != "true" ]; then
 
@@ -232,80 +245,180 @@ fi
 
 
 # ============================================================
-# 3. Download e compila SCIP
+# Funzione helper: configura e compila SCIP con flag custom
+# Evita di duplicare l'intero blocco cmake tra Pass 1 e Pass 2.
+# $1 = flag extra per C compiler
+# $2 = flag extra per CXX compiler
+# $3 = flag extra per shared linker
+# $4 = flag extra per exe linker
+# $5 = etichetta per il log
+# ============================================================
+build_scip() {
+  local EXTRA_C_FLAGS="$1"
+  local EXTRA_CXX_FLAGS="$2"
+  local EXTRA_SHARED_LINKER_FLAGS="$3"
+  local EXTRA_EXE_LINKER_FLAGS="$4"
+  local LABEL="$5"
+
+  echo ""
+  echo "============================================================"
+  echo ">>> Build SCIP — $LABEL"
+  echo "============================================================"
+
+  cd "$WORK/scipoptsuite"
+  rm -rf build && mkdir -p build && cd build
+
+  LIBGFORTRAN_A=$(find "$PREFIX" -name 'libgfortran.a' -print -quit)
+  LIBQUADMATH_A=$(find "$PREFIX" -name 'libquadmath.a' -print -quit)
+
+  # NOTA IMPORTANTE da CMakeLists.txt riga 914:
+  #   if(IPOPT_FOUND) → set(LAPACK off)
+  # Quando IPOPT è trovato, SCIP forza internamente LAPACK=off.
+
+  # LTO notes:
+  #   -DLTO=on abilita -flto su SCIP/SoPlex → ottimizzazione cross-modulo al link-time.
+  #   -O3 -flto=auto nei SHARED_LINKER_FLAGS garantisce che la fase LTRANS usi tutti i
+  #   core e che i flag di ottimizzazione arrivino al linker finale (requisito critico
+  #   per LTO — cfr. Hubička, LTO in GCC part 2).
+  #   -Wl,-Bsymbolic-functions dice al linker che le chiamate interne a libscip.so
+  #   si risolvono sempre internamente (no PLT interposition), permettendo a LTO di
+  #   inlinare/eliminare cross-modulo.
+
+  cmake .. \
+    -G "Unix Makefiles" \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_INSTALL_PREFIX="$WORK/scip_shared" \
+    -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
+    -DCMAKE_PREFIX_PATH="$PREFIX" \
+    -DCMAKE_C_FLAGS="$OPT_FLAGS $EXTRA_C_FLAGS" \
+    -DCMAKE_CXX_FLAGS="$OPT_FLAGS -DCPPAD_MAX_NUM_THREADS=1024 $EXTRA_CXX_FLAGS" \
+    -DCMAKE_EXE_LINKER_FLAGS="-O3 $LTO_FLAG $ARCH_FLAGS -L$PREFIX/lib -Wl,--start-group -lipopt -lcoinmumps -lmetis -lopenblas -lgfortran -lquadmath -Wl,--end-group -lm -lpthread $EXTRA_EXE_LINKER_FLAGS" \
+    -DCMAKE_SHARED_LINKER_FLAGS="-O3 $LTO_FLAG $ARCH_FLAGS -L$PREFIX/lib -lmetis -lopenblas -lgfortran -lquadmath -lm -Wl,-Bsymbolic-functions $EXTRA_SHARED_LINKER_FLAGS" \
+    -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+    -DBLAS_LIBRARIES="$PREFIX/lib/libopenblas.a;$PREFIX/lib/libgfortran.a;$PREFIX/lib/libquadmath.a;m" \
+    -DLAPACK_LIBRARIES="$PREFIX/lib/libopenblas.a;$PREFIX/lib/libgfortran.a;$PREFIX/lib/libquadmath.a;m" \
+    -DSHARED=ON \
+    -DBUILD_SHARED_LIBS=ON \
+    -DREADLINE=off \
+    -DGMP=on \
+    -DSTATIC_GMP=on \
+    -DGMP_DIR="$PREFIX" \
+    -DZIMPL=off \
+    -DLPS=spx \
+    -DSOPLEX_DIR="../soplex" \
+    -DIPOPT=on \
+    -DIPOPT_DIR="$PREFIX" \
+    -DIPOPT_LIBRARIES="$PREFIX/lib/libipopt.a;$PREFIX/lib/libcoinmumps.a;$PREFIX/lib/libmetis.a;$PREFIX/lib/libopenblas.a;$PREFIX/lib/libgfortran.a;$PREFIX/lib/libquadmath.a;m" \
+    -DTBB=off \
+    -DFILTERSQP=off \
+    -DMPFR=off \
+    -DWORHP=off \
+    -DBOOST_ROOT="$PREFIX" \
+    -DPAPILO=off \
+    -DZLIB=off \
+    -DTHREADSAFE=on \
+    -DLTO=on \
+    -DTPI=tny \
+    -DGCG=off \
+    -DUG=off
+
+  make -s -j"$CORES" libscip soplex
+  echo ">>> Build SCIP — $LABEL completata."
+}
+
+
+# ============================================================
+# 3. Estrai sorgenti SCIP (una volta, riusati da entrambe le pass)
 # ============================================================
 cd "$WORK"
 tar -xzf "resources/scipoptsuite-${SCIPOPTSUITE_VERSION}.tgz"
 mv "scipoptsuite-${SCIPOPTSUITE_VERSION}" scipoptsuite
 
-cd "$WORK/scipoptsuite"
-rm -rf build && mkdir -p build && cd build
+# Estrai problemi per PGO training
+cd "$WORK"
+unzip -qo resources/PROBS.zip -d "$WORK/pgo_problems"
+CIP_FILES=("$WORK/pgo_problems"/*.cip)
+if [ ${#CIP_FILES[@]} -eq 0 ]; then
+  echo "Errore: nessun file .cip trovato in PROBS.zip"
+  exit 1
+fi
+echo ">>> PGO: ${#CIP_FILES[@]} problemi .cip per training"
 
-# NOTA IMPORTANTE da CMakeLists.txt riga 914:
-#   if(IPOPT_FOUND) → set(LAPACK off)
-# Quando IPOPT è trovato, SCIP forza internamente LAPACK=off, ignorando qualsiasi
-# -DLAPACK=on passato da fuori. IPOPT porta già la propria dipendenza BLAS/LAPACK
-# (via Mumps) quindi SCIP non ha bisogno di linkarla separatamente.
 
-# Trova le .a di Fortran compilate con -fPIC
-LIBGFORTRAN_A=$(find "$PREFIX" -name 'libgfortran.a' -print -quit)
-LIBQUADMATH_A=$(find "$PREFIX" -name 'libquadmath.a' -print -quit)
-echo "Fortran static libs: $LIBGFORTRAN_A $LIBQUADMATH_A"
+# ============================================================
+# 3a. PASS 1 — Build SCIP instrumentato per PGO
+# ============================================================
+# -fprofile-generate inserisce contatori su ogni branch/call.
+# Il binario risultante è ~2-3x più lento ma produce file .gcda
+# con i profili di esecuzione reale.
+build_scip \
+  "-fprofile-generate=$PGO_DIR" \
+  "-fprofile-generate=$PGO_DIR" \
+  "-fprofile-generate=$PGO_DIR" \
+  "-fprofile-generate=$PGO_DIR" \
+  "PASS 1/2 — PGO instrument"
 
-# LTO notes:
-#   -DLTO=on abilita -flto su SCIP/SoPlex → ottimizzazione cross-modulo al link-time.
-#   -O3 -flto=auto nei SHARED_LINKER_FLAGS garantisce che la fase LTRANS usi tutti i
-#   core e che i flag di ottimizzazione arrivino al linker finale (requisito critico
-#   per LTO — cfr. Hubička, LTO in GCC part 2).
-#   -Wl,-Bsymbolic-functions dice al linker che le chiamate interne a libscip.so
-#   si risolvono sempre internamente (no PLT interposition), permettendo a LTO di
-#   inlinare/eliminare cross-modulo senza bisogno di -fvisibility=hidden o version script.
 
-cmake .. \
-  -G "Unix Makefiles" \
-  -DCMAKE_BUILD_TYPE=Release \
-  -DCMAKE_INSTALL_PREFIX="$WORK/scip_shared" \
-  -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
-  -DCMAKE_PREFIX_PATH="$PREFIX" \
-  -DCMAKE_C_FLAGS="$OPT_FLAGS" \
-  -DCMAKE_CXX_FLAGS="$OPT_FLAGS -DCPPAD_MAX_NUM_THREADS=1024" \
-  -DCMAKE_EXE_LINKER_FLAGS="-O3 $LTO_FLAG $ARCH_FLAGS -L$PREFIX/lib -Wl,--start-group -lipopt -lcoinmumps -lmetis -lopenblas -lgfortran -lquadmath -Wl,--end-group -lm -lpthread" \
-  -DCMAKE_SHARED_LINKER_FLAGS="-O3 $LTO_FLAG $ARCH_FLAGS -L$PREFIX/lib -lmetis -lopenblas -lgfortran -lquadmath -lm -Wl,-Bsymbolic-functions" \
-  -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
-  -DBLAS_LIBRARIES="$PREFIX/lib/libopenblas.a;$PREFIX/lib/libgfortran.a;$PREFIX/lib/libquadmath.a;m" \
-  -DLAPACK_LIBRARIES="$PREFIX/lib/libopenblas.a;$PREFIX/lib/libgfortran.a;$PREFIX/lib/libquadmath.a;m" \
-  -DSHARED=ON \
-  -DBUILD_SHARED_LIBS=ON \
-  -DREADLINE=off \
-  -DGMP=on \
-  -DSTATIC_GMP=on \
-  -DGMP_DIR="$PREFIX" \
-  -DZIMPL=off \
-  -DLPS=spx \
-  -DSOPLEX_DIR="../soplex" \
-  -DIPOPT=on \
-  -DIPOPT_DIR="$PREFIX" \
-  -DIPOPT_LIBRARIES="$PREFIX/lib/libipopt.a;$PREFIX/lib/libcoinmumps.a;$PREFIX/lib/libmetis.a;$PREFIX/lib/libopenblas.a;$PREFIX/lib/libgfortran.a;$PREFIX/lib/libquadmath.a;m" \
-  -DTBB=off \
-  -DFILTERSQP=off \
-  -DMPFR=off \
-  -DWORHP=off \
-  -DBOOST_ROOT="$PREFIX" \
-  -DPAPILO=off \
-  -DZLIB=off \
-  -DTHREADSAFE=on \
-  -DLTO=on \
-  -DTPI=tny \
-  -DGCG=off \
-  -DUG=off
+# ============================================================
+# 3b. PGO TRAINING — compila smoke test, risolvi i .cip
+# ============================================================
+# Il smoke test linka la libscip.so instrumentata e risolve i problemi.
+# Ogni branch/call eseguita viene contata nei file .gcda.
+# La qualità del PGO dipende da quanto i .cip sono rappresentativi
+# del carico reale (LP, MILP, QCQP, NLP).
+echo ""
+echo "============================================================"
+echo ">>> PGO TRAINING — ${#CIP_FILES[@]} problemi"
+echo "============================================================"
 
-# Stampa primi comandi di compilazione per verificare flag
-echo ">>> Flag compilazione effettivi:"
-make VERBOSE=1 -j1 libscip 2>&1 | grep -m3 -E '/(gcc|g\+\+) ' | sed 's|/.*/scipoptsuite/|.../|g; s| -I[^ ]*||g; s|  *| |g' || true
-echo "---"
+# Serve make install per avere gli header in scip_shared/include
+cd "$WORK/scipoptsuite/build"
+make -s install > /dev/null 2>&1
 
-# Build completa
-make -s -j"$CORES" libscip soplex
+gcc -O2 -o "$WORK/smoke_test_scip" \
+    "$WORK/resources/smoke_test_scip.c" \
+    -I"$WORK/scip_shared/include" \
+    -L"$WORK/scipoptsuite/build/lib" \
+    -lscip \
+    -lm -lpthread
+echo ">>> Smoke test compilato"
+
+# Esegui — ogni solve produce profili in $PGO_DIR
+# || true perché il training non deve fallire il build se un problema
+# va in time limit — i profili parziali sono comunque utili
+LD_LIBRARY_PATH="$WORK/scipoptsuite/build/lib" \
+  "$WORK/smoke_test_scip" "${CIP_FILES[@]}" || true
+
+# Verifica profili generati
+GCDA_COUNT=$(find "$PGO_DIR" -name '*.gcda' 2>/dev/null | wc -l)
+echo ""
+echo ">>> Profili PGO: $GCDA_COUNT file .gcda"
+
+if [ "$GCDA_COUNT" -eq 0 ]; then
+  echo "ATTENZIONE: nessun profilo PGO generato — fallback a build senza PGO"
+  PGO_USE_FLAGS=""
+else
+  echo ">>> OK: profili pronti per Pass 2"
+  # -fprofile-use legge i .gcda e guida le ottimizzazioni:
+  #   - branch prediction basata su frequenze reali
+  #   - inlining aggressivo sulle funzioni hot
+  #   - hot/cold splitting del codice
+  #   - loop unrolling basato sul trip count reale
+  # -fprofile-correction tolera inconsistenze da race condition multi-thread
+  #   (i contatori PGO non usano lock per non rallentare il training)
+  PGO_USE_FLAGS="-fprofile-use=$PGO_DIR -fprofile-correction"
+fi
+
+
+# ============================================================
+# 3c. PASS 2 — Rebuild SCIP ottimizzato con profili PGO
+# ============================================================
+build_scip \
+  "$PGO_USE_FLAGS" \
+  "$PGO_USE_FLAGS" \
+  "$PGO_USE_FLAGS" \
+  "$PGO_USE_FLAGS" \
+  "PASS 2/2 — PGO optimize"
 
 
 # ============================================================
@@ -384,4 +497,7 @@ cp resources/ipeoptimtest.zip test_package/
 zip -r test_package.zip test_package/
 rm -rf test_package
 
-echo "Build Linux completata."
+# Cleanup
+rm -rf "$PGO_DIR" "$WORK/pgo_problems" "$WORK/smoke_test_scip"
+
+echo "Build Linux completata (LTO + PGO)."
