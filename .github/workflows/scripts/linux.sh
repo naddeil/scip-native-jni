@@ -19,6 +19,33 @@ fi
 mkdir -p "$PREFIX" "$PREFIX/include" "$PREFIX/lib" "$OUT"
 
 # ============================================================
+# Tuning flags
+# ============================================================
+# -march=x86-64-v2: Lambda x86 gira almeno su Haswell (SSE4.2, POPCNT,
+#   CMPXCHG16B). v2 è il baseline safe. Non v3 perché Lambda potrebbe
+#   assegnare istanze senza AVX2. OpenBLAS con DYNAMIC_ARCH=1 fa già
+#   dispatch runtime per i kernel BLAS, quindi il guadagno di v2 è sul
+#   codice non-BLAS (SoPlex simplex iterations, SCIP branching/propagation).
+#
+# -fvisibility=hidden / -fvisibility-inlines-hidden:
+#   Senza questi flag, LTO su una .so è fortemente limitato: le regole PIC
+#   di interposizione impediscono al compilatore di inlinare o eliminare
+#   funzioni con visibilità default, perché potrebbero essere sostituite a
+#   runtime via LD_PRELOAD (cfr. Hubička, LTO in GCC part 2).
+#   SCIP usa SCIP_EXPORT → __attribute__((visibility("default"))) sulle API
+#   pubbliche, quindi hidden di default è safe: i simboli necessari a
+#   JSCIPOpt restano visibili.
+#
+# -flto=auto: parallelizza la fase LTRANS usando tutti i core disponibili.
+#   Senza "=auto", GCC usa un solo processo per la code generation finale.
+
+ARCH_FLAGS="-march=x86-64-v2"
+OPT_FLAGS="-O3 -fPIC $ARCH_FLAGS"
+VIS_FLAGS="-fvisibility=hidden"
+VIS_FLAGS_CXX="-fvisibility=hidden -fvisibility-inlines-hidden"
+LTO_FLAG="-flto=auto"
+
+# ============================================================
 # 0. Prerequisiti (Amazon Linux 2023)
 # ============================================================
 # Rimuovi JDK 17 (default AL2023) per forzare JDK 11
@@ -59,14 +86,14 @@ ln -sf /usr/bin/wget /usr/local/bin/wget 2>/dev/null || true
 # -----------------------------------------------------------
 curl -LO "https://ftp.gnu.org/gnu/gmp/gmp-${GMP_VERSION}.tar.xz"
 tar xf "gmp-${GMP_VERSION}.tar.xz" && cd "gmp-${GMP_VERSION}"
-CFLAGS="-O3 -fPIC" CPPFLAGS="-DPIC" ./configure --prefix="$PREFIX" --with-pic --disable-shared > /dev/null
+CFLAGS="$OPT_FLAGS" CPPFLAGS="-DPIC" ./configure --prefix="$PREFIX" --with-pic --disable-shared > /dev/null
 make -s -j"$CORES" && make -s install && cd ..
 
 BOOST_UNDERSCORE=$(echo "$BOOST_VERSION" | tr '.' '_')
 curl -LO "https://archives.boost.io/release/${BOOST_VERSION}/source/boost_${BOOST_UNDERSCORE}.tar.bz2"
 tar xf "boost_${BOOST_UNDERSCORE}.tar.bz2" && cd "boost_${BOOST_UNDERSCORE}"
 ./bootstrap.sh --with-libraries=program_options,serialization,regex,random,iostreams --prefix="$PREFIX"
-./b2 -j"$CORES" -d0 link=static runtime-link=static cxxflags="-fPIC -O3" install && cd ..
+./b2 -j"$CORES" -d0 link=static runtime-link=static cxxflags="$OPT_FLAGS" install && cd ..
 
 # -----------------------------------------------------------
 # libgfortran.a + libquadmath.a statiche con -fPIC
@@ -135,6 +162,8 @@ cd "$WORK/staticdepsinstall"
 echo ">>> OpenBLAS: compilazione da sorgente (DYNAMIC_ARCH=1) …"
 wget -q "https://github.com/OpenMathLib/OpenBLAS/releases/download/v${OPENBLAS_VERSION}/OpenBLAS-${OPENBLAS_VERSION}.zip"
 unzip -q "OpenBLAS-${OPENBLAS_VERSION}.zip" && mv "OpenBLAS-${OPENBLAS_VERSION}" OpenBLAS && cd OpenBLAS
+# OpenBLAS gestisce i propri CFLAGS internamente per i kernel ottimizzati,
+# non sovrascriviamo con le nostre variabili d'ambiente
 unset CFLAGS CXXFLAGS LDFLAGS LIBRARY_PATH LD_LIBRARY_PATH CPATH PKG_CONFIG_PATH 2>/dev/null || true
 make -s -j"$CORES" NO_SHARED=1 DYNAMIC_ARCH=1 USE_OPENMP=0 CC=/usr/bin/gcc FC=/usr/bin/gfortran
 make -s PREFIX="$PREFIX" NO_SHARED=1 install
@@ -169,7 +198,7 @@ wget -q "https://github.com/KarypisLab/GKlib/archive/refs/tags/METIS-v5.1.1-Dist
 tar xf "METIS-v5.1.1-DistDGL-0.5.tar.gz"
 cd "GKlib-METIS-v5.1.1-DistDGL-0.5"
 sed -i 's/^CONFIG_FLAGS =/CONFIG_FLAGS = -DCMAKE_POLICY_VERSION_MINIMUM=3.5/' Makefile
-make config prefix="$PREFIX" cc=/usr/bin/gcc 'CFLAGS=-O3 -fPIC'
+make config prefix="$PREFIX" cc=/usr/bin/gcc "CFLAGS=$OPT_FLAGS"
 make -j"$CORES"
 make install
 cd ..
@@ -178,7 +207,7 @@ wget -q "https://github.com/KarypisLab/METIS/archive/refs/tags/v5.1.1-DistDGL-v0
 tar xf "v5.1.1-DistDGL-v0.5.tar.gz"
 cd "METIS-5.1.1-DistDGL-v0.5"
 sed -i 's/^CONFIG_FLAGS =/CONFIG_FLAGS = -DCMAKE_POLICY_VERSION_MINIMUM=3.5/' Makefile
-make config prefix="$PREFIX" gklib_path="$WORK/staticdepsinstall/GKlib-METIS-v5.1.1-DistDGL-0.5" cc=/usr/bin/gcc 'CFLAGS=-O3 -fPIC'
+make config prefix="$PREFIX" gklib_path="$WORK/staticdepsinstall/GKlib-METIS-v5.1.1-DistDGL-0.5" cc=/usr/bin/gcc "CFLAGS=$OPT_FLAGS"
 make -j"$CORES"
 make install
 
@@ -199,9 +228,9 @@ cd ThirdParty-Mumps
   --enable-shared=no \
   --enable-static=yes \
   --with-pic \
-  CFLAGS="-O3 -fPIC" \
-  FCFLAGS="-O3 -fPIC" \
-  CXXFLAGS="-O3 -fPIC" \
+  CFLAGS="$OPT_FLAGS" \
+  FCFLAGS="$OPT_FLAGS" \
+  CXXFLAGS="$OPT_FLAGS" \
   --with-metis-cflags="-I$PREFIX/include" \
   --with-metis-lflags="-L$PREFIX/lib -lmetis -lm" \
   --with-lapack-lflags="$BLAS_LAPACK_LFLAGS"
@@ -232,9 +261,9 @@ mkdir -p build && cd build
   --disable-java \
   --without-hsl \
   --without-asl \
-  CFLAGS="-O3 -fPIC" \
-  CXXFLAGS="-O3 -fPIC" \
-  FFLAGS="-O3 -fPIC" \
+  CFLAGS="$OPT_FLAGS" \
+  CXXFLAGS="$OPT_FLAGS" \
+  FFLAGS="$OPT_FLAGS" \
   PKG_CONFIG_PATH="$PREFIX/lib/pkgconfig" \
   --with-lapack-lflags="$BLAS_LAPACK_LFLAGS"
 
@@ -271,7 +300,7 @@ LIBGFORTRAN_A=$(find "$PREFIX" -name 'libgfortran.a' -print -quit)
 LIBQUADMATH_A=$(find "$PREFIX" -name 'libquadmath.a' -print -quit)
 echo "Fortran static libs: $LIBGFORTRAN_A $LIBQUADMATH_A"
 
-# LTO + visibility notes:
+# LTO + visibility + arch notes:
 #   -DLTO=on abilita -flto su SCIP/SoPlex/PaPILO → ottimizzazione cross-modulo al link-time.
 #   -fvisibility=hidden nasconde tutti i simboli non esplicitamente esportati, permettendo
 #   a LTO di inlinare/eliminare funzioni interne alla .so (senza, le regole PIC impediscono
@@ -279,6 +308,12 @@ echo "Fortran static libs: $LIBGFORTRAN_A $LIBQUADMATH_A"
 #   SCIP usa la macro SCIP_EXPORT → __attribute__((visibility("default"))) sulle API pubbliche,
 #   quindi i simboli necessari a JSCIPOpt restano visibili.
 #   Se il build di JSCIPOpt dovesse fallire con undefined symbols, rimuovere -fvisibility=hidden.
+#
+#   -march=x86-64-v2 abilita SSE4.2/POPCNT, safe per qualsiasi Lambda x86-64 (>= Haswell).
+#
+#   -flto=auto nella SHARED_LINKER_FLAGS garantisce che la fase LTRANS usi tutti i core
+#   disponibili e che i flag di ottimizzazione arrivino al linker finale (requisito critico
+#   per LTO — cfr. Hubička part 2: "pass proper optimization flag to the final invocation").
 
 cmake .. \
   -G "Unix Makefiles" \
@@ -286,10 +321,10 @@ cmake .. \
   -DCMAKE_INSTALL_PREFIX="$WORK/scip_shared" \
   -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
   -DCMAKE_PREFIX_PATH="$PREFIX" \
-  -DCMAKE_C_FLAGS="-O3 -fPIC" \
-  -DCMAKE_CXX_FLAGS="-O3 -fPIC -DCPPAD_MAX_NUM_THREADS=1024" \
-  -DCMAKE_EXE_LINKER_FLAGS="-L$PREFIX/lib -Wl,--start-group -lipopt -lcoinmumps -lmetis -lopenblas -lgfortran -lquadmath -Wl,--end-group -lm -lpthread" \
-  -DCMAKE_SHARED_LINKER_FLAGS="-L$PREFIX/lib -lmetis -lopenblas -lgfortran -lquadmath -lm" \
+  -DCMAKE_C_FLAGS="$OPT_FLAGS $VIS_FLAGS" \
+  -DCMAKE_CXX_FLAGS="$OPT_FLAGS $VIS_FLAGS_CXX -DCPPAD_MAX_NUM_THREADS=1024" \
+  -DCMAKE_EXE_LINKER_FLAGS="-O3 $LTO_FLAG $ARCH_FLAGS -L$PREFIX/lib -Wl,--start-group -lipopt -lcoinmumps -lmetis -lopenblas -lgfortran -lquadmath -Wl,--end-group -lm -lpthread" \
+  -DCMAKE_SHARED_LINKER_FLAGS="-O3 $LTO_FLAG $ARCH_FLAGS -L$PREFIX/lib -lmetis -lopenblas -lgfortran -lquadmath -lm" \
   -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
   -DBLAS_LIBRARIES="$PREFIX/lib/libopenblas.a;$PREFIX/lib/libgfortran.a;$PREFIX/lib/libquadmath.a;m" \
   -DLAPACK_LIBRARIES="$PREFIX/lib/libopenblas.a;$PREFIX/lib/libgfortran.a;$PREFIX/lib/libquadmath.a;m" \
@@ -321,13 +356,31 @@ cmake .. \
 make -s -j"$CORES" libscip soplex
 
 
-echo ">>> Verifica dipendenze:"
+echo ">>> Verifica dipendenze dinamiche:"
 if ldd "$WORK/scipoptsuite/build/lib/libscip.so" | grep -qE 'libgfortran|libquadmath'; then
   echo "ERRORE: dipendenze Fortran dinamiche ancora presenti!"
   ldd "$WORK/scipoptsuite/build/lib/libscip.so" | grep -E 'gfortran|quadmath'
   exit 1
 else
   echo "OK: libgfortran/libquadmath linkate staticamente"
+fi
+
+echo ">>> Verifica LTO effettivo:"
+# Le sezioni .gnu.lto_ non devono restare nel .so finale — se ci sono, LTO non ha processato
+LTO_SECTIONS=$(readelf -S "$WORK/scipoptsuite/build/lib/libscip.so" 2>/dev/null | grep -c '\.gnu\.lto' || true)
+if [ "$LTO_SECTIONS" -gt 0 ]; then
+  echo "ATTENZIONE: $LTO_SECTIONS sezioni .gnu.lto residue — LTO potrebbe non aver processato tutti i moduli"
+else
+  echo "OK: nessuna sezione .gnu.lto residua"
+fi
+
+echo ">>> Verifica visibility (simboli dynamic export):"
+DYNSYM_COUNT=$(nm -D --defined-only "$WORK/scipoptsuite/build/lib/libscip.so" 2>/dev/null | wc -l)
+echo "Simboli dynamic export: $DYNSYM_COUNT"
+# Con -fvisibility=hidden ci si aspetta qualche centinaio (solo SCIP_EXPORT).
+# Senza, tipicamente >5000. Stampiamo un warning se sembra troppo alto.
+if [ "$DYNSYM_COUNT" -gt 3000 ]; then
+  echo "ATTENZIONE: $DYNSYM_COUNT simboli esportati — -fvisibility=hidden potrebbe non essere attivo"
 fi
 
 
@@ -339,8 +392,11 @@ unzip -q resources/JSCIPOpt-${SCIPOPTSUITE_VERSION}.zip
 cd JSCIPOpt
 rm -f src/*cxx src/*h 2>/dev/null || true
 rm -rf build && mkdir build && cd build
+# JSCIPOpt non necessita di visibility=hidden (è il consumer della API pubblica SCIP_EXPORT)
 cmake .. -DSCIP_DIR="$SCIP_BUILD" -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
-  -DJAVA_AWT_LIBRARY=NotNeeded
+  -DJAVA_AWT_LIBRARY=NotNeeded \
+  -DCMAKE_C_FLAGS="$OPT_FLAGS" \
+  -DCMAKE_CXX_FLAGS="$OPT_FLAGS"
 make -s
 
 # ============================================================
@@ -353,8 +409,17 @@ cp "$WORK/JSCIPOpt/build/Release/scip.jar" "$OUT/"
 cp -L "$WORK/JSCIPOpt/build/Release/libjscip.so" "$OUT/"
 cp -L "$WORK/scipoptsuite/build/lib/libscip.so" "$OUT/libscip.so.${SCIP_MAJOR_MINOR}"
 
-# Fix rpath — $ORIGIN permette di caricare le dipendenze dalla stessa cartella
+# Strip — rimuove simboli non necessari, riduce package size e tempo di mmap
+# (impatto diretto su cold start Lambda). Con LTO attivo i binari tendono ad
+# avere più sezioni residue, quindi strip guadagna proporzionalmente di più.
 cd "$OUT"
+for f in *.so*; do
+  echo "Strip: $f (before: $(stat -c%s "$f") bytes)"
+  strip --strip-unneeded "$f" 2>/dev/null || true
+  echo "Strip: $f (after:  $(stat -c%s "$f") bytes)"
+done
+
+# Fix rpath — $ORIGIN permette di caricare le dipendenze dalla stessa cartella
 for f in *.so*; do
   patchelf --set-rpath '$ORIGIN' "$f" 2>/dev/null || true
 done
