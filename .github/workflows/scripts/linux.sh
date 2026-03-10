@@ -314,7 +314,7 @@ cmake .. \
   -DPAPILO=off \
   -DZLIB=off \
   -DTHREADSAFE=on \
-  -DLTO=off \
+  -DLTO=on \
   -DTPI=tny \
   -DGCG=off \
   -DUG=off
