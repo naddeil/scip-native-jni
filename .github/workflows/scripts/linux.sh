@@ -254,7 +254,7 @@ fi
 # 3. Download e compila SCIP
 # ============================================================
 cd "$WORK"
-curl -LO "https://www.scipopt.org/download/release/scipoptsuite-${SCIPOPTSUITE_VERSION}.tgz"
+curl -LO "https://github.com/scipopt/scip/releases/download/v${SCIPOPTSUITE_VERSION}/scipoptsuite-${SCIPOPTSUITE_VERSION}.tgz"
 tar -xzf "scipoptsuite-${SCIPOPTSUITE_VERSION}.tgz"
 mv "scipoptsuite-${SCIPOPTSUITE_VERSION}" scipoptsuite
 
