@@ -21,15 +21,22 @@ mkdir -p "$PREFIX" "$PREFIX/include" "$PREFIX/lib" "$OUT"
 # ============================================================
 # Tuning flags
 # ============================================================
+# -march=x86-64-v2: Lambda x86 gira almeno su Haswell (SSE4.2, POPCNT,
+#   CMPXCHG16B). v2 è il baseline safe.
+# -flto=auto: parallelizza la fase LTRANS usando tutti i core disponibili.
+# -Wl,-Bsymbolic-functions: dice al linker che le chiamate tra funzioni
+#   dentro libscip.so si risolvono sempre internamente (no PLT interposition).
+#   Questo dà a LTO l'informazione necessaria per inlinare/ottimizzare
+#   cross-modulo, senza bisogno di version script o -fvisibility=hidden
+#   (cfr. Hubička, LTO in GCC part 2).
 ARCH_FLAGS="-march=x86-64-v2"
 OPT_FLAGS="-O3 -fPIC $ARCH_FLAGS"
-VIS_FLAGS="-fvisibility=hidden"
-VIS_FLAGS_CXX="-fvisibility=hidden -fvisibility-inlines-hidden"
 LTO_FLAG="-flto=auto"
 
 # ============================================================
 # 0. Prerequisiti (Amazon Linux 2023)
 # ============================================================
+# Rimuovi JDK 17 (default AL2023) per forzare JDK 11
 dnf remove -y java-17-amazon-corretto* 2>/dev/null || true
 dnf install -y --allowerasing \
   gcc gcc-c++ gcc-gfortran make cmake wget curl git unzip zip which \
@@ -43,6 +50,7 @@ export JAVA_HOME=$(dirname $(dirname $(readlink -f $(which javac))))
 # ============================================================
 if [ "${DEPS_CACHED:-}" != "true" ]; then
 
+# Carica versioni dipendenze specifiche per questa versione SCIP
 DEPS_FILE="$WORK/.github/workflows/scripts/deps-versions-${SCIPOPTSUITE_VERSION}.env"
 if [ ! -f "$DEPS_FILE" ]; then
   echo "Errore: File dipendenze $DEPS_FILE non trovato"
@@ -59,6 +67,7 @@ ln -sf /usr/bin/wget /usr/local/bin/wget 2>/dev/null || true
 
 # -----------------------------------------------------------
 # GMP
+#   - GMP for rational arithmetic in SoPlex, SCIP
 # -----------------------------------------------------------
 echo ">>> GMP ${GMP_VERSION}"
 curl -sLO "https://ftp.gnu.org/gnu/gmp/gmp-${GMP_VERSION}.tar.xz"
@@ -69,6 +78,7 @@ echo "    OK: $(ls -lh "$PREFIX/lib/libgmp.a" | awk '{print $5}')"
 
 # -----------------------------------------------------------
 # Boost
+#   - Boost multiprecision library for rationals in SCIP/SoPlex
 # -----------------------------------------------------------
 echo ">>> Boost ${BOOST_VERSION}"
 BOOST_UNDERSCORE=$(echo "$BOOST_VERSION" | tr '.' '_')
@@ -80,6 +90,8 @@ echo "    OK"
 
 # -----------------------------------------------------------
 # libgfortran.a + libquadmath.a statiche con -fPIC
+# Le versioni di sistema (libgfortran-static) non hanno -fPIC,
+# quindi ricompiliamo GCC target libraries con --with-pic.
 # -----------------------------------------------------------
 echo ">>> libgfortran.a + libquadmath.a (GCC ${GCC_VERSION})"
 FORTRAN_BUILD="$WORK/staticdepsinstall/gcc-fortran-pic"
@@ -105,12 +117,16 @@ make -s install-target-libquadmath        > /dev/null 2>&1
 make -s install-target-libgfortran        > /dev/null 2>&1
 find "$PREFIX" -name '*.so*' -delete 2>/dev/null || true
 
+# Copia le .a in $PREFIX/lib per uniformità (GCC le installa in lib/gcc/...)
 find "$PREFIX" -name 'libgfortran.a' -exec cp {} "$PREFIX/lib/" \;
 find "$PREFIX" -name 'libquadmath.a' -exec cp {} "$PREFIX/lib/" \;
 
+# Symlink nel path di sistema del compilatore — serve perché il configure
+# di Mumps/Ipopt cerca -lgfortran nei path standard
 GCC_LIB_DIR=$(dirname "$(gfortran -print-libgcc-file-name)")
 ln -sf "$PREFIX/lib/libgfortran.a" "$GCC_LIB_DIR/libgfortran.a"
 ln -sf "$PREFIX/lib/libquadmath.a" "$GCC_LIB_DIR/libquadmath.a"
+# Rimuovi le .so di sistema così il linker è forzato a usare le nostre .a
 rm -f "$GCC_LIB_DIR"/libgfortran.so* /usr/lib64/libgfortran.so* /usr/lib/libgfortran.so* 2>/dev/null || true
 rm -f "$GCC_LIB_DIR"/libquadmath.so* /usr/lib64/libquadmath.so* /usr/lib/libquadmath.so* 2>/dev/null || true
 
@@ -122,16 +138,19 @@ done
 cd "$WORK/staticdepsinstall"
 
 # -----------------------------------------------------------
-# OpenBLAS
+# OpenBLAS — BLAS + LAPACK + LAPACKE ottimizzati
+# Buildiamo noi poichè ci serve DYNAMIC_ARCH=1 per supportare tutte le cpu
 # -----------------------------------------------------------
 echo ">>> OpenBLAS ${OPENBLAS_VERSION} (DYNAMIC_ARCH=1)"
 wget -q "https://github.com/OpenMathLib/OpenBLAS/releases/download/v${OPENBLAS_VERSION}/OpenBLAS-${OPENBLAS_VERSION}.zip"
 unzip -q "OpenBLAS-${OPENBLAS_VERSION}.zip" && mv "OpenBLAS-${OPENBLAS_VERSION}" OpenBLAS && cd OpenBLAS
+# OpenBLAS gestisce i propri CFLAGS internamente per i kernel ottimizzati
 unset CFLAGS CXXFLAGS LDFLAGS LIBRARY_PATH LD_LIBRARY_PATH CPATH PKG_CONFIG_PATH 2>/dev/null || true
 make -s -j"$CORES" NO_SHARED=1 DYNAMIC_ARCH=1 USE_OPENMP=0 CC=/usr/bin/gcc FC=/usr/bin/gfortran > /dev/null 2>&1
 make -s PREFIX="$PREFIX" NO_SHARED=1 install > /dev/null 2>&1
 cd ..
 
+# Se il file non si chiama esattamente libopenblas.a, crea symlink
 if [ ! -f "$PREFIX/lib/libopenblas.a" ]; then
   OB_LIB=$(find "$PREFIX" -name 'libopenblas*.a' -print -quit)
   if [ -n "$OB_LIB" ]; then
@@ -142,10 +161,12 @@ if [ ! -f "$PREFIX/lib/libopenblas.a" ]; then
 fi
 echo "    OK: $(ls -lh "$PREFIX/lib/libopenblas.a" | awk '{print $5}')"
 
+# Flag BLAS/LAPACK condivisi per Mumps e Ipopt
 BLAS_LAPACK_LFLAGS="-L$PREFIX/lib -lopenblas -lgfortran -lquadmath -lm"
 
 # -----------------------------------------------------------
-# GKlib + METIS
+# METIS 5 — ordering per Mumps (migliora performance fattorizzazione)
+# GKlib è prerequisito di METIS 5
 # -----------------------------------------------------------
 echo ">>> GKlib + METIS"
 cd "$WORK/staticdepsinstall"
@@ -168,7 +189,7 @@ cd ..
 echo "    OK: $(ls -lh "$PREFIX/lib/libmetis.a" | awk '{print $5}')"
 
 # -----------------------------------------------------------
-# ThirdParty-Mumps
+# ThirdParty-Mumps (build diretta, con METIS)
 # -----------------------------------------------------------
 echo ">>> ThirdParty-Mumps"
 cd "$WORK/staticdepsinstall"
@@ -186,7 +207,7 @@ cd ..
 echo "    OK: $(ls -lh "$PREFIX/lib/libcoinmumps.a" | awk '{print $5}')"
 
 # -----------------------------------------------------------
-# Ipopt
+# Ipopt (build diretta, senza coinbrew)
 # -----------------------------------------------------------
 echo ">>> Ipopt ${IPOPT_VERSION}"
 cd "$WORK/staticdepsinstall"
@@ -217,35 +238,28 @@ cd "$WORK"
 tar -xzf "resources/scipoptsuite-${SCIPOPTSUITE_VERSION}.tgz"
 mv "scipoptsuite-${SCIPOPTSUITE_VERSION}" scipoptsuite
 
-# -----------------------------------------------------------
-# Version script — opera a livello linker, non compiler.
-# Anche se CMake sovrascrive -fvisibility=hidden nei CFLAGS,
-# il version script forza local: * su tutto tranne i simboli
-# esplicitamente elencati. Dà a LTO la stessa informazione di
-# non-interposizione, permettendo inline/eliminazione cross-modulo.
-# -----------------------------------------------------------
-cat > "$WORK/scipoptsuite/libscip.map" << 'MAPEOF'
-LIBSCIP {
-  global:
-    SCIP*;
-    SCIPopt*;
-    SoPlex*;
-    soplex*;
-    JNI_*;
-    Java_*;
-    BMSallocMemory*;
-    BMSfreeMemory*;
-    BMSreallocMemory*;
-  local:
-    *;
-};
-MAPEOF
-
 cd "$WORK/scipoptsuite"
 rm -rf build && mkdir -p build && cd build
 
+# NOTA IMPORTANTE da CMakeLists.txt riga 914:
+#   if(IPOPT_FOUND) → set(LAPACK off)
+# Quando IPOPT è trovato, SCIP forza internamente LAPACK=off, ignorando qualsiasi
+# -DLAPACK=on passato da fuori. IPOPT porta già la propria dipendenza BLAS/LAPACK
+# (via Mumps) quindi SCIP non ha bisogno di linkarla separatamente.
+
+# Trova le .a di Fortran compilate con -fPIC
 LIBGFORTRAN_A=$(find "$PREFIX" -name 'libgfortran.a' -print -quit)
 LIBQUADMATH_A=$(find "$PREFIX" -name 'libquadmath.a' -print -quit)
+echo "Fortran static libs: $LIBGFORTRAN_A $LIBQUADMATH_A"
+
+# LTO notes:
+#   -DLTO=on abilita -flto su SCIP/SoPlex → ottimizzazione cross-modulo al link-time.
+#   -O3 -flto=auto nei SHARED_LINKER_FLAGS garantisce che la fase LTRANS usi tutti i
+#   core e che i flag di ottimizzazione arrivino al linker finale (requisito critico
+#   per LTO — cfr. Hubička, LTO in GCC part 2).
+#   -Wl,-Bsymbolic-functions dice al linker che le chiamate interne a libscip.so
+#   si risolvono sempre internamente (no PLT interposition), permettendo a LTO di
+#   inlinare/eliminare cross-modulo senza bisogno di -fvisibility=hidden o version script.
 
 cmake .. \
   -G "Unix Makefiles" \
@@ -253,13 +267,10 @@ cmake .. \
   -DCMAKE_INSTALL_PREFIX="$WORK/scip_shared" \
   -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
   -DCMAKE_PREFIX_PATH="$PREFIX" \
-  -DCMAKE_C_FLAGS="$OPT_FLAGS $VIS_FLAGS" \
-  -DCMAKE_CXX_FLAGS="$OPT_FLAGS $VIS_FLAGS_CXX -DCPPAD_MAX_NUM_THREADS=1024" \
-  -DCMAKE_C_VISIBILITY_PRESET=hidden \
-  -DCMAKE_CXX_VISIBILITY_PRESET=hidden \
-  -DCMAKE_VISIBILITY_INLINES_HIDDEN=ON \
+  -DCMAKE_C_FLAGS="$OPT_FLAGS" \
+  -DCMAKE_CXX_FLAGS="$OPT_FLAGS -DCPPAD_MAX_NUM_THREADS=1024" \
   -DCMAKE_EXE_LINKER_FLAGS="-O3 $LTO_FLAG $ARCH_FLAGS -L$PREFIX/lib -Wl,--start-group -lipopt -lcoinmumps -lmetis -lopenblas -lgfortran -lquadmath -Wl,--end-group -lm -lpthread" \
-  -DCMAKE_SHARED_LINKER_FLAGS="-O3 $LTO_FLAG $ARCH_FLAGS -L$PREFIX/lib -lmetis -lopenblas -lgfortran -lquadmath -lm -Wl,--version-script=$WORK/scipoptsuite/libscip.map" \
+  -DCMAKE_SHARED_LINKER_FLAGS="-O3 $LTO_FLAG $ARCH_FLAGS -L$PREFIX/lib -lmetis -lopenblas -lgfortran -lquadmath -lm -Wl,-Bsymbolic-functions" \
   -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
   -DBLAS_LIBRARIES="$PREFIX/lib/libopenblas.a;$PREFIX/lib/libgfortran.a;$PREFIX/lib/libquadmath.a;m" \
   -DLAPACK_LIBRARIES="$PREFIX/lib/libopenblas.a;$PREFIX/lib/libgfortran.a;$PREFIX/lib/libquadmath.a;m" \
@@ -303,35 +314,31 @@ make -s -j"$CORES" libscip soplex
 echo ""
 echo ">>> Verifica dipendenze dinamiche:"
 if ldd "$WORK/scipoptsuite/build/lib/libscip.so" | grep -qE 'libgfortran|libquadmath'; then
-  echo "ERRORE: dipendenze Fortran dinamiche!"
+  echo "ERRORE: dipendenze Fortran dinamiche ancora presenti!"
   ldd "$WORK/scipoptsuite/build/lib/libscip.so" | grep -E 'gfortran|quadmath'
   exit 1
+else
+  echo "OK: libgfortran/libquadmath linkate staticamente"
 fi
-echo "OK: libgfortran/libquadmath statiche"
 
 echo ">>> Verifica LTO:"
 LTO_SECTIONS=$(readelf -S "$WORK/scipoptsuite/build/lib/libscip.so" 2>/dev/null | grep -c '\.gnu\.lto' || true)
 if [ "$LTO_SECTIONS" -gt 0 ]; then
-  echo "ATTENZIONE: $LTO_SECTIONS sezioni .gnu.lto residue"
+  echo "ATTENZIONE: $LTO_SECTIONS sezioni .gnu.lto residue — LTO potrebbe non aver processato tutti i moduli"
 else
   echo "OK: nessuna sezione .gnu.lto residua"
 fi
 
-echo ">>> Verifica visibility (version script):"
-DYNSYM_COUNT=$(nm -D --defined-only "$WORK/scipoptsuite/build/lib/libscip.so" 2>/dev/null | wc -l)
-echo "Simboli dynamic export: $DYNSYM_COUNT"
-if [ "$DYNSYM_COUNT" -gt 3000 ]; then
-  echo "ERRORE: $DYNSYM_COUNT simboli — version script non attivo?"
-  echo "Top 20 non-SCIP:"
-  nm -D --defined-only "$WORK/scipoptsuite/build/lib/libscip.so" \
-    | grep -v -E ' (SCIP|SCIPopt|SoPlex|soplex|JNI_|Java_|BMS)' | head -20
-  # exit 1
+echo ">>> Verifica -Bsymbolic-functions:"
+if readelf -d "$WORK/scipoptsuite/build/lib/libscip.so" 2>/dev/null | grep -q SYMBOLIC; then
+  echo "OK: SYMBOLIC flag presente"
+else
+  echo "ATTENZIONE: SYMBOLIC flag non trovato — -Bsymbolic-functions potrebbe non essere attivo"
 fi
-echo "OK: $DYNSYM_COUNT simboli"
 
 
 # ============================================================
-# 4. Compila JSCIPOpt
+# 4. Compila JSCIPOpt (versione modificata con package it.prometeia.jscip)
 # ============================================================
 cd "$WORK"
 unzip -q resources/JSCIPOpt-${SCIPOPTSUITE_VERSION}.zip
@@ -345,7 +352,7 @@ cmake .. -DSCIP_DIR="$SCIP_BUILD" -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
 make -s
 
 # ============================================================
-# 5. Genera output
+# 5. Genera output (cp -L per dereferenziare symlink)
 # ============================================================
 cd "$WORK"
 rm -rf "$OUT"/*
@@ -354,6 +361,7 @@ cp "$WORK/JSCIPOpt/build/Release/scip.jar" "$OUT/"
 cp -L "$WORK/JSCIPOpt/build/Release/libjscip.so" "$OUT/"
 cp -L "$WORK/scipoptsuite/build/lib/libscip.so" "$OUT/libscip.so.${SCIP_MAJOR_MINOR}"
 
+# Strip — rimuove simboli non necessari, riduce package size e cold start Lambda
 cd "$OUT"
 for f in *.so*; do
   SIZE_BEFORE=$(stat -c%s "$f")
@@ -362,6 +370,7 @@ for f in *.so*; do
   echo "Strip: $f  $SIZE_BEFORE → $SIZE_AFTER  (-$(( (SIZE_BEFORE - SIZE_AFTER) * 100 / SIZE_BEFORE ))%)"
 done
 
+# Fix rpath — $ORIGIN permette di caricare le dipendenze dalla stessa cartella
 for f in *.so*; do
   patchelf --set-rpath '$ORIGIN' "$f" 2>/dev/null || true
 done
