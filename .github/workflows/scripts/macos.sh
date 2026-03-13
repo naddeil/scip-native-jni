@@ -57,14 +57,17 @@ LTO_FLAG="-flto=auto"
 brew update
 brew install gcc pkg-config wget git cmake swig maven unzip zip python3 openjdk@11
 
-# GCC da Homebrew (per PGO e LTO — stessi flag del build Linux)
+# GCC da Homebrew (per PGO e LTO nel build SCIP — stessi flag del build Linux)
+# NON esportiamo CC/CXX/FC globalmente: le dipendenze (GMP, Boost, ecc.)
+# vanno compilate con il compiler di default (clang) che su macOS ARM64
+# funziona meglio. GCC serve solo per SCIP (PGO, LTO, Fortran).
 GCC_MAJOR=$(brew list --versions gcc | awk '{print $2}' | cut -d. -f1)
 BREW_PREFIX="$(brew --prefix)"
-export CC="$BREW_PREFIX/bin/gcc-$GCC_MAJOR"
-export CXX="$BREW_PREFIX/bin/g++-$GCC_MAJOR"
-export FC="$BREW_PREFIX/bin/gfortran-$GCC_MAJOR"
+GCC_CC="$BREW_PREFIX/bin/gcc-$GCC_MAJOR"
+GCC_CXX="$BREW_PREFIX/bin/g++-$GCC_MAJOR"
+GCC_FC="$BREW_PREFIX/bin/gfortran-$GCC_MAJOR"
 
-echo ">>> Compiler: $CC (GCC $GCC_MAJOR)"
+echo ">>> GCC per SCIP: $GCC_CC (GCC $GCC_MAJOR)"
 
 # JAVA_HOME
 export JAVA_HOME="$(/usr/libexec/java_home -v 11 2>/dev/null || brew --prefix openjdk@11)"
@@ -172,9 +175,9 @@ unset CFLAGS CXXFLAGS LDFLAGS LIBRARY_PATH LD_LIBRARY_PATH CPATH PKG_CONFIG_PATH
 # Su ARM64 macOS DYNAMIC_ARCH non serve (un solo tipo di CPU Apple Silicon)
 # Su x86_64 macOS lo attiviamo come su Linux
 if [ "$ARCH" = "x86_64" ]; then
-  make -s -j"$CORES" NO_SHARED=1 DYNAMIC_ARCH=1 USE_OPENMP=0 CC="$CC" FC="$FC" > /dev/null 2>&1
+  make -s -j"$CORES" NO_SHARED=1 DYNAMIC_ARCH=1 USE_OPENMP=0 CC="$GCC_CC" FC="$GCC_FC" > /dev/null 2>&1
 else
-  make -s -j"$CORES" NO_SHARED=1 USE_OPENMP=0 CC="$CC" FC="$FC" > /dev/null 2>&1
+  make -s -j"$CORES" NO_SHARED=1 USE_OPENMP=0 CC="$GCC_CC" FC="$GCC_FC" > /dev/null 2>&1
 fi
 make -s PREFIX="$PREFIX" NO_SHARED=1 install > /dev/null 2>&1
 cd ..
@@ -190,10 +193,6 @@ if [ ! -f "$PREFIX/lib/libopenblas.a" ]; then
 fi
 echo "    OK: $(ls -lh "$PREFIX/lib/libopenblas.a" | awk '{print $5}')"
 
-# Restore compiler env vars dopo unset
-export CC="$BREW_PREFIX/bin/gcc-$GCC_MAJOR"
-export CXX="$BREW_PREFIX/bin/g++-$GCC_MAJOR"
-export FC="$BREW_PREFIX/bin/gfortran-$GCC_MAJOR"
 
 # Flag BLAS/LAPACK condivisi per Mumps e Ipopt
 BLAS_LAPACK_LFLAGS="-L$PREFIX/lib -lopenblas -lgfortran -lquadmath -lm"
@@ -210,7 +209,7 @@ tar xf "METIS-v5.1.1-DistDGL-0.5.tar.gz"
 cd "GKlib-METIS-v5.1.1-DistDGL-0.5"
 # macOS sed: -i '' (BSD)
 sed -i '' 's/^CONFIG_FLAGS =/CONFIG_FLAGS = -DCMAKE_POLICY_VERSION_MINIMUM=3.5/' Makefile
-make config prefix="$PREFIX" cc="$CC" "CFLAGS=$OPT_FLAGS" > /dev/null 2>&1
+make config prefix="$PREFIX" cc=cc "CFLAGS=$OPT_FLAGS" > /dev/null 2>&1
 make -j"$CORES" > /dev/null 2>&1 && make install > /dev/null 2>&1
 cd ..
 
@@ -218,7 +217,7 @@ wget -q "https://github.com/KarypisLab/METIS/archive/refs/tags/v5.1.1-DistDGL-v0
 tar xf "v5.1.1-DistDGL-v0.5.tar.gz"
 cd "METIS-5.1.1-DistDGL-v0.5"
 sed -i '' 's/^CONFIG_FLAGS =/CONFIG_FLAGS = -DCMAKE_POLICY_VERSION_MINIMUM=3.5/' Makefile
-make config prefix="$PREFIX" gklib_path="$WORK/staticdepsinstall/GKlib-METIS-v5.1.1-DistDGL-0.5" cc="$CC" "CFLAGS=$OPT_FLAGS" > /dev/null 2>&1
+make config prefix="$PREFIX" gklib_path="$WORK/staticdepsinstall/GKlib-METIS-v5.1.1-DistDGL-0.5" cc=cc "CFLAGS=$OPT_FLAGS" > /dev/null 2>&1
 make -j"$CORES" > /dev/null 2>&1 && make install > /dev/null 2>&1
 cd ..
 echo "    OK: $(ls -lh "$PREFIX/lib/libmetis.a" | awk '{print $5}')"
@@ -233,6 +232,7 @@ cd ThirdParty-Mumps
 ./get.Mumps > /dev/null 2>&1
 ./configure \
   --prefix="$PREFIX" --enable-shared=no --enable-static=yes --with-pic \
+  CC=cc CXX=c++ FC="$GCC_FC" \
   CFLAGS="$OPT_FLAGS" FCFLAGS="$OPT_FLAGS" CXXFLAGS="$OPT_FLAGS" \
   --with-metis-cflags="-I$PREFIX/include" \
   --with-metis-lflags="-L$PREFIX/lib -lmetis -lm" \
@@ -254,6 +254,7 @@ mkdir -p build && cd build
 ../configure \
   --prefix="$PREFIX" --enable-shared=no --enable-static=yes --with-pic \
   --disable-sipopt --disable-java --without-hsl --without-asl \
+  CC=cc CXX=c++ FC="$GCC_FC" \
   CFLAGS="$OPT_FLAGS" CXXFLAGS="$OPT_FLAGS" FFLAGS="$OPT_FLAGS" \
   PKG_CONFIG_PATH="$PREFIX/lib/pkgconfig" \
   --with-lapack-lflags="$BLAS_LAPACK_LFLAGS" > /dev/null 2>&1
@@ -311,9 +312,9 @@ build_scip() {
     -DCMAKE_INSTALL_PREFIX="$WORK/scip_shared" \
     -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
     -DCMAKE_PREFIX_PATH="$PREFIX" \
-    -DCMAKE_C_COMPILER="$CC" \
-    -DCMAKE_CXX_COMPILER="$CXX" \
-    -DCMAKE_Fortran_COMPILER="$FC" \
+    -DCMAKE_C_COMPILER="$GCC_CC" \
+    -DCMAKE_CXX_COMPILER="$GCC_CXX" \
+    -DCMAKE_Fortran_COMPILER="$GCC_FC" \
     -DCMAKE_C_FLAGS="$OPT_FLAGS $EXTRA_C_FLAGS" \
     -DCMAKE_CXX_FLAGS="$OPT_FLAGS -DCPPAD_MAX_NUM_THREADS=1024 $EXTRA_CXX_FLAGS" \
     -DCMAKE_EXE_LINKER_FLAGS="-O3 $LTO_FLAG $ARCH_FLAGS -L$PREFIX/lib -lipopt -lcoinmumps -lmetis -lopenblas -lgfortran -lquadmath -lm -lpthread $EXTRA_EXE_LINKER_FLAGS" \
@@ -392,7 +393,7 @@ echo "============================================================"
 cd "$WORK/scipoptsuite/build"
 make -s install > /dev/null 2>&1
 
-"$CC" -O2 -o "$WORK/smoke_test_scip" \
+"$GCC_CC" -O2 -o "$WORK/smoke_test_scip" \
     "$WORK/resources/smoke_test_scip.c" \
     -I"$WORK/scip_shared/include" \
     -L"$WORK/scipoptsuite/build/lib" \
@@ -475,8 +476,8 @@ rm -f src/*cxx src/*h 2>/dev/null || true
 rm -rf build && mkdir build && cd build
 cmake .. -DSCIP_DIR="$SCIP_BUILD" -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
   -DJAVA_AWT_LIBRARY=NotNeeded \
-  -DCMAKE_C_COMPILER="$CC" \
-  -DCMAKE_CXX_COMPILER="$CXX" \
+  -DCMAKE_C_COMPILER="$GCC_CC" \
+  -DCMAKE_CXX_COMPILER="$GCC_CXX" \
   -DCMAKE_C_FLAGS="$OPT_FLAGS" \
   -DCMAKE_CXX_FLAGS="$OPT_FLAGS"
 make -s
