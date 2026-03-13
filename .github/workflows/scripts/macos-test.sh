@@ -1,29 +1,33 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Test su runner macOS pulito — verifica che out/ sia autocontenuto
+# Test su macOS pulito — verifica che out/ sia autocontenuto
 WORK="$GITHUB_WORKSPACE"
 OUT="$WORK/out"
 SCIP_MAJOR_MINOR=$(echo "$SCIPOPTSUITE_VERSION" | cut -d. -f1-2)
-SCIP_DYLIB="libscip.${SCIP_MAJOR_MINOR}.dylib"
+
+brew install openjdk@11 maven python3 unzip
+export JAVA_HOME="$(/usr/libexec/java_home -v 11 2>/dev/null || brew --prefix openjdk@11)"
+export PATH="$JAVA_HOME/bin:$PATH"
+
+java --version
 
 # ============================================================
-# 1. Checker — carica le dylib da out/ senza dipendenze di build
+# 1. Checker — carica le .dylib da out/ senza dipendenze di build
 # ============================================================
-echo "=== Checker: verifica dipendenze ==="
-otool -L "$OUT/libjscip.dylib"
-otool -L "$OUT/$SCIP_DYLIB"
+echo "=== Checker: verifica caricamento librerie ==="
+cd "$WORK"
 
-export DYLD_LIBRARY_PATH="$OUT"
-python3 -c "
-import ctypes, sys
-for lib in ['$OUT/libjscip.dylib', '$OUT/$SCIP_DYLIB']:
+DYLD_LIBRARY_PATH="$OUT" python3 -c "
+import ctypes, sys, os
+os.environ['DYLD_LIBRARY_PATH'] = '$OUT'
+for lib in ['$OUT/libscip.${SCIP_MAJOR_MINOR}.dylib', '$OUT/libjscip.dylib']:
     print(f'Carico {lib}...')
     try:
         ctypes.CDLL(lib)
-        print('✅ OK')
+        print('OK')
     except OSError as e:
-        print(f'❌ {e}')
+        print(f'ERRORE: {e}')
         sys.exit(1)
 "
 echo "Checker OK."
