@@ -214,7 +214,7 @@ cd ThirdParty-Mumps
 ./get.Mumps > /dev/null 2>&1
 ./configure \
   --prefix="$PREFIX" --enable-shared=no --enable-static=yes --with-pic \
-  CC=cc CXX=c++ FC="$GCC_FC" \
+  CC="$GCC_CC" CXX="$GCC_CXX" FC="$GCC_FC" \
   CFLAGS="$OPT_FLAGS" FCFLAGS="$OPT_FLAGS" CXXFLAGS="$OPT_FLAGS" \
   --with-metis-cflags="-I$PREFIX/include" \
   --with-metis-lflags="-L$PREFIX/lib -lmetis -lm" \
@@ -236,7 +236,7 @@ mkdir -p build && cd build
 ../configure \
   --prefix="$PREFIX" --enable-shared=no --enable-static=yes --with-pic \
   --disable-sipopt --disable-java --without-hsl --without-asl \
-  CC=cc CXX=c++ FC="$GCC_FC" \
+  CC="$GCC_CC" CXX="$GCC_CXX" FC="$GCC_FC" \
   CFLAGS="$OPT_FLAGS" CXXFLAGS="$OPT_FLAGS" FFLAGS="$OPT_FLAGS" \
   PKG_CONFIG_PATH="$PREFIX/lib/pkgconfig" \
   --with-lapack-lflags="$BLAS_LAPACK_LFLAGS" > /dev/null 2>&1
