@@ -117,49 +117,31 @@ tar xf "boost_${BOOST_UNDERSCORE}.tar.bz2" && cd "boost_${BOOST_UNDERSCORE}"
 echo "    OK"
 
 # -----------------------------------------------------------
-# libgfortran.a + libquadmath.a statiche con -fPIC
-# Su macOS compiliamo dal sorgente GCC come su Linux per avere
-# .a pulite e controllate. Brew fornisce .dylib ma non .a utilizzabili.
+# libgfortran.a + libquadmath.a statiche
+# Su Linux buildiamo GCC da sorgente perché le .a di sistema non hanno -fPIC.
+# Su macOS, Homebrew GCC le include già con -fPIC (macOS richiede PIC per tutto).
+# Copiamo direttamente dalla installazione Homebrew GCC.
 # -----------------------------------------------------------
-echo ">>> libgfortran.a + libquadmath.a (GCC ${GCC_VERSION})"
-FORTRAN_BUILD="$WORK/staticdepsinstall/gcc-fortran-pic"
-mkdir -p "$FORTRAN_BUILD" && cd "$FORTRAN_BUILD"
-wget -q "https://ftp.gnu.org/gnu/gcc/gcc-${GCC_VERSION}/gcc-${GCC_VERSION}.tar.xz"
-tar xf "gcc-${GCC_VERSION}.tar.xz"
-cd "gcc-${GCC_VERSION}"
-./contrib/download_prerequisites > /dev/null 2>&1
-
-mkdir -p "$FORTRAN_BUILD/build" && cd "$FORTRAN_BUILD/build"
-
-# Su macOS usiamo il GCC di brew come host compiler per il bootstrap
-"$FORTRAN_BUILD/gcc-${GCC_VERSION}/configure" \
-  --prefix="$PREFIX" \
-  --enable-languages=c,fortran \
-  --disable-bootstrap --disable-multilib --disable-shared --enable-static --with-pic \
-  --disable-libsanitizer --disable-libgomp --disable-libvtv --disable-libatomic \
-  --disable-libstdcxx --disable-libssp --disable-libcc1 --disable-libitm \
-  --with-gmp="$(brew --prefix gmp)" \
-  --with-mpfr="$(brew --prefix mpfr)" \
-  --with-mpc="$(brew --prefix libmpc)" \
-  --with-isl="$(brew --prefix isl)" \
-  --with-system-zlib > /dev/null 2>&1
-
-make -s -j"$CORES" all-gcc                > /dev/null 2>&1
-make -s -j"$CORES" all-target-libquadmath > /dev/null 2>&1
-make -s -j"$CORES" all-target-libgfortran > /dev/null 2>&1
-make -s install-target-libquadmath        > /dev/null 2>&1
-make -s install-target-libgfortran        > /dev/null 2>&1
-# Rimuovi eventuali .dylib — vogliamo solo le .a
-find "$PREFIX" -name '*.dylib' -path '*/libgfortran*' -delete 2>/dev/null || true
-find "$PREFIX" -name '*.dylib' -path '*/libquadmath*' -delete 2>/dev/null || true
-
-# Copia le .a in $PREFIX/lib per uniformità (GCC le installa in lib/gcc/...)
-find "$PREFIX" -name 'libgfortran.a' -exec cp {} "$PREFIX/lib/" \;
-find "$PREFIX" -name 'libquadmath.a' -exec cp {} "$PREFIX/lib/" \;
+echo ">>> libgfortran.a + libquadmath.a (da Homebrew GCC $GCC_MAJOR)"
+GCC_LIB_BREW="$BREW_PREFIX/lib/gcc/$GCC_MAJOR"
+if [ ! -d "$GCC_LIB_BREW" ]; then
+  # Fallback: cerca in lib/gcc/current o lib/gcc
+  GCC_LIB_BREW=$(find "$BREW_PREFIX/lib/gcc" -maxdepth 1 -type d | sort -V | tail -1)
+fi
+echo "    Sorgente: $GCC_LIB_BREW"
 
 for LIB in libgfortran.a libquadmath.a; do
-  P=$(find "$PREFIX/lib" -name "$LIB" -print -quit)
-  echo "    $LIB $(ls -lh "$P" | awk '{print $5}')"
+  SRC=$(find "$GCC_LIB_BREW" -name "$LIB" -print -quit 2>/dev/null)
+  if [ -z "$SRC" ]; then
+    # Cerca più in profondità nell'installazione Homebrew GCC
+    SRC=$(find "$BREW_PREFIX/Cellar/gcc" -name "$LIB" -print -quit 2>/dev/null)
+  fi
+  if [ -n "$SRC" ]; then
+    cp "$SRC" "$PREFIX/lib/"
+    echo "    $LIB $(ls -lh "$PREFIX/lib/$LIB" | awk '{print $5}') ← $SRC"
+  else
+    echo "    ATTENZIONE: $LIB non trovata in Homebrew GCC — verrà linkata dinamicamente"
+  fi
 done
 
 cd "$WORK/staticdepsinstall"
