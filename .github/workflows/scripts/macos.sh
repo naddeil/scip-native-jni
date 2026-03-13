@@ -1,140 +1,50 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Test su macOS pulito — verifica che out/ sia autocontenuto
 WORK="$GITHUB_WORKSPACE"
-PREFIX="$WORK/deps_static"
-SCIP_BUILD="$WORK/scipoptsuite/build"
 OUT="$WORK/out"
-CORES=$(sysctl -n hw.logicalcpu)
 SCIP_MAJOR_MINOR=$(echo "$SCIPOPTSUITE_VERSION" | cut -d. -f1-2)
 
-# Verifica che JSCIPOpt per questa versione sia disponibile
-if [ ! -f "$WORK/resources/JSCIPOpt-${SCIPOPTSUITE_VERSION}.zip" ]; then
-  echo "Errore: JSCIPOpt-${SCIPOPTSUITE_VERSION}.zip non trovato in resources/"
-  echo "Versioni disponibili:"
-  for f in "$WORK/resources"/JSCIPOpt-*.zip; do [ -f "$f" ] && basename "$f"; done
-  exit 1
-fi
+brew install openjdk@11 maven python3 unzip
+export JAVA_HOME="$(/usr/libexec/java_home -v 11 2>/dev/null || brew --prefix openjdk@11)"
+export PATH="$JAVA_HOME/bin:$PATH"
 
-mkdir -p "$PREFIX" "$PREFIX/include" "$PREFIX/lib" "$OUT"
+java --version
 
 # ============================================================
-# 0. Prerequisiti brew
+# 1. Checker — carica le .dylib da out/ senza dipendenze di build
 # ============================================================
-brew update
-brew install gcc bison boost pkg-config wget cmake maven
+echo "=== Checker: verifica caricamento librerie ==="
+cd "$WORK"
 
-export CMAKE_IGNORE_PREFIX_PATH=/opt/homebrew
+DYLD_LIBRARY_PATH="$OUT" python3 -c "
+import ctypes, sys, os
+os.environ['DYLD_LIBRARY_PATH'] = '$OUT'
+for lib in ['$OUT/libscip.${SCIP_MAJOR_MINOR}.dylib', '$OUT/libjscip.dylib']:
+    print(f'Carico {lib}...')
+    try:
+        ctypes.CDLL(lib)
+        print('OK')
+    except OSError as e:
+        print(f'ERRORE: {e}')
+        sys.exit(1)
+"
+echo "Checker OK."
 
 # ============================================================
-# 1-2. Dipendenze (skip se cachate)
+# 2. Test Java
 # ============================================================
-if [ "${DEPS_CACHED:-}" != "true" ]; then
+mvn install:install-file \
+  -Dfile="$OUT/scip.jar" \
+  -DgroupId=com.test -DartifactId=scip -Dversion=0.0.1 -Dpackaging=jar
 
 cd "$WORK"
-mkdir -p staticdepsinstall && cd staticdepsinstall
-
-curl -LO https://github.com/madler/zlib/releases/download/v1.3.1/zlib-1.3.1.tar.xz
-tar xf zlib-1.3.1.tar.xz && cd zlib-1.3.1
-CFLAGS="-O3 -fPIC" ./configure --static --prefix="$PREFIX"
-make -s -j"$CORES" && make -s install && cd ..
-
-curl -LO https://ftp.gnu.org/gnu/gmp/gmp-6.3.0.tar.xz
-tar xf gmp-6.3.0.tar.xz && cd gmp-6.3.0
-CFLAGS="-O3 -fPIC" ./configure --disable-shared --enable-static --prefix="$PREFIX" CC=clang
-make -s -j"$CORES" && make -s install && cd ..
-
-curl -LO https://www.mpfr.org/mpfr-current/mpfr-4.2.2.tar.xz
-tar xf mpfr-4.2.2.tar.xz && cd mpfr-4.2.2
-CFLAGS="-O3 -fPIC" ./configure --disable-shared --enable-static --prefix="$PREFIX" --with-gmp="$PREFIX" CC=clang
-make -s -j"$CORES" && make -s install && cd ..
-
-curl -LO https://archives.boost.io/release/1.85.0/source/boost_1_85_0.tar.bz2
-tar xf boost_1_85_0.tar.bz2 && cd boost_1_85_0
-./bootstrap.sh --with-libraries=program_options,serialization,regex,random,iostreams --prefix="$PREFIX"
-./b2 -j"$CORES" -d0 link=static runtime-link=static cxxflags="-fPIC" install && cd ..
-
-curl -LO https://github.com/coin-or/Ipopt/archive/refs/tags/releases/3.14.16.tar.gz
-tar xf 3.14.16.tar.gz && cd Ipopt-releases-3.14.16
-mkdir build && cd build
-../configure \
-  --prefix="$PREFIX" \
-  --disable-shared --enable-static \
-  --with-lapack-lflags="-framework Accelerate" \
-  --with-blas-lflags="-framework Accelerate" \
-  CC=clang CXX=clang++ FC=gfortran \
-  CFLAGS="-O3 -fPIC" CXXFLAGS="-O3 -fPIC" FFLAGS="-O3 -fPIC"
-make -j"$CORES" && make install && cd ../..
-
-echo "Dipendenze compilate."
-else
-  echo "Dipendenze cachate, skip compilazione."
-fi
-
-# ============================================================
-# 3. Download e compila SCIP
-# ============================================================
+unzip -q resources/ipeoptimtest.zip
+cd ipeoptimtest
+mvn clean compile
+MAVEN_OPTS="-Djava.library.path=$OUT" \
+  mvn exec:java -Dexec.mainClass="com.prometeia.test.TestIntegrazioneCoptimQuadratico"
 cd "$WORK"
-tar -xzf "resources/scipoptsuite-${SCIPOPTSUITE_VERSION}.tgz"
-mv "scipoptsuite-${SCIPOPTSUITE_VERSION}" scipoptsuite
-
-cd "$WORK/scipoptsuite"
-rm -rf build && mkdir -p build && cd build
-cmake .. \
-  -G "Unix Makefiles" \
-  -DCMAKE_BUILD_TYPE=Release \
-  -DCMAKE_INSTALL_PREFIX="$WORK/scip_shared" \
-  -DCMAKE_PREFIX_PATH="$PREFIX" \
-  -DCMAKE_C_FLAGS="-O3 -fPIC" -DCMAKE_CXX_FLAGS="-O3 -fPIC" \
-  -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
-  -DSHARED=ON -DBUILD_SHARED_LIBS=ON \
-  -DREADLINE=off -DGMP=on -DSTATIC_GMP=on -DGMP_DIR="$PREFIX" -DZIMPL=off \
-  -DLAPACK=on -DLPS=spx -DSOPLEX_DIR="../soplex" \
-  -DIPOPT=on -DIPOPT_DIR="$PREFIX" \
-  -DTBB=off -DFILTERSQP=off -DWORHP=off \
-  -DBOOST_ROOT="$PREFIX" -DPAPILO=off -DZLIB=off \
-  -DTHREADSAFE=on -DLTO=off -DTPI=tny \
-  -DGCG=off -DUG=off
-make -s -j"$CORES" && make -s install
-
-# ============================================================
-# 4. Compila JSCIPOpt
-# ============================================================
-cd "$WORK"
-unzip -q resources/JSCIPOpt-${SCIPOPTSUITE_VERSION}.zip
-cd JSCIPOpt && rm -rf build && mkdir build && cd build
-cmake .. -DSCIP_DIR="$SCIP_BUILD" -DCMAKE_POLICY_VERSION_MINIMUM=3.5
-make
-
-# ============================================================
-# 5. Raddrizzatore + output
-# ============================================================
-cd "$WORK"
-LIBSCIP=$(find "$SCIP_BUILD/lib" -name 'libscip.*.dylib' | head -1)
-SCIP_DYLIB="libscip.${SCIP_MAJOR_MINOR}.dylib"
-
-cp "$WORK/JSCIPOpt/build/Release/scip.jar" "$OUT/"
-cp "$WORK/JSCIPOpt/build/Release/libjscip.dylib" "$OUT/"
-cp -L "$LIBSCIP" "$OUT/$SCIP_DYLIB"
-
-install_name_tool -change "$LIBSCIP" "@loader_path/$SCIP_DYLIB" "$OUT/libjscip.dylib"
-
-# Copia e fix dipendenze non-sistema (con -L per dereferenziare symlink)
-DEPENDENCIES=$(otool -L "$OUT/$SCIP_DYLIB" | tail -n +3 | awk '{print $1}' | grep -vE '^(/usr/lib|/System/Library|@)')
-for DEP in $DEPENDENCIES; do
-  BASENAME=$(basename "$DEP")
-  cp -L "$DEP" "$OUT/$BASENAME" 2>/dev/null || true
-  install_name_tool -change "$DEP" "@loader_path/$BASENAME" "$OUT/$SCIP_DYLIB"
-  # Fix anche dipendenze transitive nelle dylib copiate
-  for f in "$OUT"/*.dylib; do
-    install_name_tool -change "$DEP" "@loader_path/$BASENAME" "$f" 2>/dev/null || true
-  done
-done
-
-for f in "$OUT"/*.dylib; do
-  install_name_tool -id "@loader_path/$(basename "$f")" "$f" 2>/dev/null || true
-done
-
-cd "$WORK"
-zip -r out.zip out/
-echo "Build macOS completata."
+rm -rf ipeoptimtest
+echo "Test Java completato."
