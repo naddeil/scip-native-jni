@@ -124,7 +124,6 @@ jobs:
 
   release:
     needs: [merge-artifacts]
-    if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     permissions:
       contents: write

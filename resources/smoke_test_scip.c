@@ -31,6 +31,68 @@
 /* Time limit per singolo problema (secondi) */
 #define TIME_LIMIT 120.0
 
+/* Euristiche da disabilitare per problemi continui (da ScipTuning.applyContinuous) */
+static const char* HEURISTICS_TO_DISABLE_CONTINUOUS[] = {
+    "bound",
+    "clique",
+    "completesol",
+    "dps",
+    "locks",
+    "ofins",
+    "oneopt",
+    "padm",
+    "reoptsols",
+    "shiftandpropagate",
+    "trivial",
+    "trivialnegation",
+    "trysol",
+    "vbounds",
+    "zeroobj",
+    "multistart"
+};
+static const int NUM_HEURISTICS_TO_DISABLE = sizeof(HEURISTICS_TO_DISABLE_CONTINUOUS) / sizeof(HEURISTICS_TO_DISABLE_CONTINUOUS[0]);
+
+/**
+ * Applica la stessa configurazione di ScipTuning.applyContinuous(Scip)
+ */
+static void apply_continuous_tuning(SCIP* scip)
+{
+    char param_name[256];
+
+    /* assumeconvex = true: SCIP per problemi di rounding crede che i problemi
+     * siano non-convessi, causando tempi un ordine di grandezza più lenti */
+    SCIPsetBoolParam(scip, "constraints/nonlinear/assumeconvex", TRUE);
+
+    /* Disabilita propagatore pseudoobj */
+    SCIPsetIntParam(scip, "propagating/pseudoobj/freq", -1);
+
+    /* Disabilita calcolo simmetria (inutile su problemi solo continui) */
+    SCIPsetIntParam(scip, "propagating/symmetry/maxprerounds", 0);
+    SCIPsetIntParam(scip, "misc/usesymmetry", 0);
+
+    /* Disabilita separazione non lineare */
+    SCIPsetIntParam(scip, "constraints/nonlinear/sepafreq", -1);
+
+    /* Disabilita presolve non lineare (ma non disabilitare del tutto,
+     * può rendere il problema irrisolvibile) */
+    SCIPsetIntParam(scip, "constraints/nonlinear/maxprerounds", 0);
+
+    /* Esci alla prima soluzione trovata: su problemi convessi
+     * l'ottimo locale è anche globale */
+    SCIPsetIntParam(scip, "limits/solutions", 1);
+
+    /* Forza subnlp (Ipopt) a partire SEMPRE con priorità massima */
+    SCIPsetIntParam(scip, "heuristics/subnlp/freq", 1);
+    SCIPsetIntParam(scip, "heuristics/subnlp/priority", 1000000);
+
+    /* Disabilita tutte le euristiche con timing BEFOREPRESOL/BEFORENODE
+     * per garantire che subnlp (timing AFTERNODE) sia la prima a girare */
+    for (int i = 0; i < NUM_HEURISTICS_TO_DISABLE; i++) {
+        snprintf(param_name, sizeof(param_name), "heuristics/%s/freq", HEURISTICS_TO_DISABLE_CONTINUOUS[i]);
+        SCIPsetIntParam(scip, param_name, -1);
+    }
+}
+
 static int solve_one(const char* filename)
 {
     SCIP* scip = NULL;
@@ -57,9 +119,12 @@ static int solve_one(const char* filename)
         goto cleanup;
     }
 
-    /* Parametri: time limit e output ridotto */
+    /* Parametri base: time limit e output ridotto */
     SCIPsetRealParam(scip, "limits/time", TIME_LIMIT);
     SCIPsetIntParam(scip, "display/verblevel", 0);
+
+    /* Applica tuning continuo (stessa config di ScipTuning.applyContinuous) */
+    apply_continuous_tuning(scip);
 
     /* Leggi il problema */
     rc = SCIPreadProb(scip, filename, NULL);
