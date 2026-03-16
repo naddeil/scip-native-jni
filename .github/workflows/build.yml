@@ -31,12 +31,10 @@ jobs:
       (github.event.inputs.macos == 'true')
     steps:
       - uses: actions/checkout@v4
-
       - name: Build SCIP + JSCIPOpt (macOS)
         run: bash -x .github/workflows/scripts/macos.sh
         env:
           SCIPOPTSUITE_VERSION: ${{ github.event.inputs.scipoptsuite_version || '9.2.3' }}
-
       - uses: actions/upload-artifact@v4
         with:
           name: macos-arm64
@@ -47,15 +45,12 @@ jobs:
     runs-on: macos-14
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/download-artifact@v4
         with:
           name: macos-arm64
           path: .
-
       - name: Extract artifact
         run: unzip -o out.zip
-
       - name: Test (macOS)
         run: bash -x .github/workflows/scripts/macos-test.sh
         env:
@@ -73,12 +68,10 @@ jobs:
         run: |
           dnf install -y --allowerasing tar gzip git wget curl which
       - uses: actions/checkout@v4
-
       - name: Build SCIP + JSCIPOpt (Linux AL2023)
         run: bash -x .github/workflows/scripts/linux.sh
         env:
           SCIPOPTSUITE_VERSION: ${{ github.event.inputs.scipoptsuite_version || '9.2.3' }}
-
       - uses: actions/upload-artifact@v4
         with:
           name: linux-x86_64
@@ -95,15 +88,12 @@ jobs:
       - name: Install base tools
         run: dnf install -y --allowerasing tar gzip git unzip
       - uses: actions/checkout@v4
-
       - uses: actions/download-artifact@v4
         with:
           name: linux-x86_64
           path: .
-
       - name: Extract artifact
         run: unzip -o out.zip
-
       - name: Test (Linux AL2023)
         run: bash -x .github/workflows/scripts/linux-test.sh
         env:
@@ -123,18 +113,28 @@ jobs:
           pattern: "{macos-arm64,linux-x86_64}"
 
   release:
-    needs: [merge-artifacts]
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/download-artifact@v4
-        with:
-          name: all-platforms
-          path: artifacts
-
-      - name: Create Release
-        uses: softprops/action-gh-release@v2
-        with:
-          files: artifacts/*
-          generate_release_notes: true
+      needs: [merge-artifacts]
+      if: >-
+        (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')) ||
+        (github.event_name == 'workflow_dispatch')
+      runs-on: ubuntu-latest
+      permissions:
+        contents: write
+      steps:
+        - uses: actions/checkout@v4
+        - uses: actions/download-artifact@v4
+          with:
+            name: all-platforms
+            path: artifacts
+        - name: Delete existing release
+          run: gh release delete "v$TAG" --yes --cleanup-tag 2>/dev/null || true
+          env:
+            GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+            TAG: ${{ github.event.inputs.scipoptsuite_version || github.ref_name }}
+        - name: Create Release
+          uses: softprops/action-gh-release@v2
+          with:
+            tag_name: v${{ github.event.inputs.scipoptsuite_version || github.ref_name }}
+            name: SCIPOptSuite ${{ github.event.inputs.scipoptsuite_version || github.ref_name }}
+            files: artifacts/*
+            generate_release_notes: true
