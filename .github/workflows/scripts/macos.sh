@@ -512,7 +512,7 @@ fi
 cd "$WORK"
 
 # Copia pom.xml dal sorgente JSCIPOpt
-cp "$WORK/JSCIPOpt/pom.xml" "$OUT/"
+cp "$WORK/pom.xml" "$OUT/"
 
 mkdir -p test_package
 cp resources/ipeoptimtest.zip test_package/
