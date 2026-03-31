@@ -489,10 +489,11 @@ for f in *.so*; do
 done
 
 cd "$WORK"
-zip -r out.zip out/
+
+# Copia pom.xml dal sorgente JSCIPOpt
+cp "$WORK/JSCIPOpt/pom.xml" "$OUT/"
 
 mkdir -p test_package
-cp -r out test_package/
 cp resources/ipeoptimtest.zip test_package/
 zip -r test_package.zip test_package/
 rm -rf test_package

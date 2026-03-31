@@ -38,7 +38,20 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: macos-arm64
-          path: out.zip
+          path: |
+            out/libjscip.dylib
+            out/libscip.*.dylib
+      - uses: actions/upload-artifact@v4
+        with:
+          name: java
+          path: |
+            out/scip.jar
+            out/pom.xml
+          overwrite: true
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-test-package
+          path: test_package.zip
 
   macos-test:
     needs: macos-build
@@ -48,9 +61,17 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: macos-arm64
+          path: out
+      - uses: actions/download-artifact@v4
+        with:
+          name: java
+          path: out
+      - uses: actions/download-artifact@v4
+        with:
+          name: macos-test-package
           path: .
-      - name: Extract artifact
-        run: unzip -o out.zip
+      - name: Extract test package
+        run: unzip -o test_package.zip
       - name: Test (macOS)
         run: bash -x .github/workflows/scripts/macos-test.sh
         env:
@@ -76,8 +97,19 @@ jobs:
         with:
           name: linux-x86_64
           path: |
-            out.zip
-            test_package.zip
+            out/libjscip.so
+            out/libscip.so.*
+      - uses: actions/upload-artifact@v4
+        with:
+          name: java
+          path: |
+            out/scip.jar
+            out/pom.xml
+          overwrite: true
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-test-package
+          path: test_package.zip
 
   linux-test:
     needs: linux-build
@@ -91,29 +123,55 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: linux-x86_64
+          path: out
+      - uses: actions/download-artifact@v4
+        with:
+          name: java
+          path: out
+      - uses: actions/download-artifact@v4
+        with:
+          name: linux-test-package
           path: .
-      - name: Extract artifact
-        run: unzip -o out.zip
+      - name: Extract test package
+        run: unzip -o test_package.zip
       - name: Test (Linux AL2023)
         run: bash -x .github/workflows/scripts/linux-test.sh
         env:
           SCIPOPTSUITE_VERSION: ${{ github.event.inputs.scipoptsuite_version || '9.2.3' }}
 
-  merge-artifacts:
+  package:
     needs: [macos-test, linux-test]
     if: >-
       always() &&
       (needs.macos-test.result == 'success' || needs.linux-test.result == 'success')
     runs-on: ubuntu-latest
     steps:
-      - name: Merge Artifacts
-        uses: actions/upload-artifact/merge@v4
+      - uses: actions/download-artifact@v4
         with:
-          name: all-platforms
-          pattern: "{macos-arm64,linux-x86_64}"
+          path: dl
+      - name: Assemble artifacts.zip
+        run: |
+          mkdir -p staging/java
+          cp dl/java/scip.jar staging/java/
+          cp dl/java/pom.xml staging/java/
+          if [ -d dl/macos-arm64 ]; then
+            mkdir -p staging/macos-arm64
+            cp dl/macos-arm64/*.dylib staging/macos-arm64/
+          fi
+          if [ -d dl/linux-x86_64 ]; then
+            mkdir -p staging/linux-x86_64
+            cp dl/linux-x86_64/*.so* staging/linux-x86_64/
+          fi
+          cd staging && zip -r ../artifacts.zip . && cd ..
+          echo ">>> Contenuto artifacts.zip:"
+          unzip -l artifacts.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: artifacts
+          path: artifacts.zip
 
   release:
-      needs: [merge-artifacts]
+      needs: [package]
       if: >-
         (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')) ||
         (github.event_name == 'workflow_dispatch')
@@ -124,8 +182,8 @@ jobs:
         - uses: actions/checkout@v4
         - uses: actions/download-artifact@v4
           with:
-            name: all-platforms
-            path: artifacts
+            name: artifacts
+            path: .
         - name: Delete existing release
           run: gh release delete "v$TAG" --yes --cleanup-tag 2>/dev/null || true
           env:
@@ -136,5 +194,5 @@ jobs:
           with:
             tag_name: v${{ github.event.inputs.scipoptsuite_version || github.ref_name }}
             name: SCIPOptSuite ${{ github.event.inputs.scipoptsuite_version || github.ref_name }}
-            files: artifacts/*
+            files: artifacts.zip
             generate_release_notes: true

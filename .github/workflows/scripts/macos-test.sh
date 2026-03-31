@@ -40,7 +40,7 @@ mvn install:install-file \
   -DgroupId=com.test -DartifactId=scip -Dversion=0.0.1 -Dpackaging=jar
 
 cd "$WORK"
-unzip -q resources/ipeoptimtest.zip
+unzip -q test_package/ipeoptimtest.zip
 cd ipeoptimtest
 mvn clean compile
 MAVEN_OPTS="-Djava.library.path=$OUT" \
