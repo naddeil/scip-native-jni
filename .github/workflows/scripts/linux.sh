@@ -32,17 +32,16 @@ mkdir -p "$PREFIX" "$PREFIX/include" "$PREFIX/lib" "$OUT" "$PGO_DIR"
 # ============================================================
 # Tuning flags
 # ============================================================
-# -march=x86-64-v2: Lambda x86 gira almeno su Haswell (SSE4.2, POPCNT,
-#   CMPXCHG16B). v2 è il baseline safe.
+# -march=x86-64
 # -flto=auto: parallelizza la fase LTRANS usando tutti i core disponibili.
 # -Wl,-Bsymbolic-functions: dice al linker che le chiamate tra funzioni
 #   dentro libscip.so si risolvono sempre internamente (no PLT interposition).
 #   Questo dà a LTO l'informazione necessaria per inlinare/ottimizzare
 #   cross-modulo, senza bisogno di version script o -fvisibility=hidden
 #   (cfr. Hubička, LTO in GCC part 2).
-ARCH_FLAGS="-march=x86-64-v2"
+ARCH_FLAGS="-march=x86-64"
 OPT_FLAGS="-O3 -fPIC $ARCH_FLAGS"
-LTO_FLAG="-flto=auto"
+LTO_FLAG="-flto=auto -fno-fat-lto-objects"
 
 # ============================================================
 # 0. Prerequisiti (Amazon Linux 2023)
